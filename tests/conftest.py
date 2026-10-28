@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import httpx
+import pytest
+from pydantic import SecretStr
+
+from wl.config import Company, Listing, Sources, Watchlist
+from wl.settings import Settings
+from wl.store import Store
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def fixture_bytes(name: str) -> bytes:
+    return (FIXTURES / name).read_bytes()
+
+
+def one(store: Store, sql: str) -> tuple[Any, ...]:
+    row = store.con.execute(sql).fetchone()
+    assert row is not None
+    return row
+
+
+def make_company(  # noqa: PLR0913
+    slug: str = "acme",
+    *,
+    ccy: str = "USD",
+    reporting_ccy: str = "USD",
+    prices: str = "twelvedata",
+    financials: str = "sec",
+    cik: int | None = 1234567,
+    lei: str | None = None,
+) -> Company:
+    return Company.model_validate(
+        {
+            "slug": slug,
+            "name": slug.upper(),
+            "group": "Test",
+            "cik": cik,
+            "lei": lei,
+            "listing": Listing(mic="XNYS", ticker=slug.upper(), ccy=ccy, yahoo=slug.upper()),
+            "reporting_ccy": reporting_ccy,
+            "sources": Sources.model_validate({"prices": prices, "financials": financials}),
+        }
+    )
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        data_dir=tmp_path / "data",
+        export_dir=tmp_path / "exports",
+        sec_user_agent="wl-tests test@example.com",
+        twelvedata_api_key=SecretStr("test-key"),
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+    )
+
+
+@pytest.fixture
+def client() -> Iterator[httpx.Client]:
+    with httpx.Client() as c:
+        yield c
+
+
+@pytest.fixture
+def store() -> Iterator[Store]:
+    with Store.memory() as s:
+        yield s
+
+
+@pytest.fixture
+def watchlist() -> Watchlist:
+    return Watchlist(
+        companies=(
+            make_company("acme"),
+            make_company(
+                "euro-co", ccy="EUR", reporting_ccy="EUR", prices="yahoo", financials="esef",
+                cik=None, lei="EXAMPLE0LEI000000001",
+            ),
+        )
+    )  # fmt: skip

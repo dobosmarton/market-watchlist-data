@@ -1,0 +1,5 @@
+{"data": [
+  {"type": "filing", "id": "101", "attributes": {"fxo_id": "EXAMPLE0LEI000000001-2024-12-31-ESEF-NL-0", "country": "NL", "period_end": "2024-12-31", "date_added": "2025-03-01T10:00:00", "json_url": "/EXAMPLE0LEI000000001/2024-12-31/ESEF/NL/0/report.json", "error_count": 0}},
+  {"type": "filing", "id": "102", "attributes": {"fxo_id": "EXAMPLE0LEI000000001-2024-12-31-ESEF-NL-1", "country": "NL", "period_end": "2024-12-31", "date_added": "2025-04-01T10:00:00", "json_url": "/EXAMPLE0LEI000000001/2024-12-31/ESEF/NL/1/report.json", "error_count": 0}},
+  {"type": "filing", "id": "103", "attributes": {"fxo_id": "EXAMPLE0LEI000000001-2023-12-31-ESEF-NL-0", "country": "NL", "period_end": "2023-12-31", "date_added": null, "json_url": null}}
+]}

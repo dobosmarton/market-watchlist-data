@@ -1,0 +1,41 @@
+-- Valuation on the latest annual figures. Market cap uses diluted weighted shares from the
+-- last annual report, converted to the reporting currency with ECB rates (EUR cross).
+CREATE OR REPLACE VIEW fx_latest AS
+SELECT quote, arg_max(rate, date) AS eur_rate, max(date) AS date
+FROM raw_fx
+WHERE base = 'EUR'
+GROUP BY quote
+UNION ALL
+SELECT 'EUR', 1.0, current_date;
+
+CREATE OR REPLACE VIEW valuation AS
+WITH last_year AS (
+    SELECT * FROM fin_annual
+    QUALIFY row_number() OVER (PARTITION BY slug ORDER BY period_end DESC) = 1
+),
+priced AS (
+    SELECT
+        c.slug, c.name, c.grp, c.quote_ccy, c.reporting_ccy,
+        s.price, s.price_date, s.wk52_low, s.wk52_high,
+        -- price converted from quote to reporting currency: price * EUR->rep / EUR->quote
+        s.price * fr.eur_rate / fq.eur_rate AS price_rep,
+        y.period_end AS fin_period_end, y.revenue, y.op_income, y.net_income, y.fcf, y.ebitda,
+        y.cash, y.debt, y.shares_diluted, y.op_margin_pct
+    FROM companies AS c
+    LEFT JOIN price_stats AS s USING (slug)
+    LEFT JOIN last_year AS y USING (slug)
+    LEFT JOIN fx_latest AS fq ON fq.quote = c.quote_ccy
+    LEFT JOIN fx_latest AS fr ON fr.quote = c.reporting_ccy
+)
+SELECT
+    *,
+    price_rep * shares_diluted AS market_cap,
+    price * shares_diluted AS market_cap_quote,
+    debt - cash AS net_debt,
+    price_rep * shares_diluted + coalesce(debt - cash, 0) AS enterprise_value,
+    (price_rep * shares_diluted) / nullif(net_income, 0) AS pe_ttm,
+    (price_rep * shares_diluted + coalesce(debt - cash, 0)) / nullif(ebitda, 0) AS ev_ebitda,
+    fcf / nullif(price_rep * shares_diluted, 0) * 100 AS fcf_yield_pct,
+    (debt - cash) / nullif(ebitda, 0) AS net_debt_ebitda,
+    (price - wk52_low) / nullif(wk52_high - wk52_low, 0) * 100 AS wk52_pos
+FROM priced;

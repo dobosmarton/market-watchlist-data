@@ -1,0 +1,45 @@
+{
+  "cik": 1234567,
+  "entityName": "Acme Corp.",
+  "facts": {
+    "dei": {
+      "EntityCommonStockSharesOutstanding": {"units": {"shares": [
+        {"end": "2025-02-14", "val": 345000000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}}
+    },
+    "us-gaap": {
+      "Revenues": {"units": {"USD": [
+        {"start": "2023-01-01", "end": "2023-12-31", "val": 1296745000, "accn": "0001234567-24-000010", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2024-02-21"},
+        {"start": "2024-01-01", "end": "2024-12-31", "val": 1669626000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"},
+        {"start": "2024-07-01", "end": "2024-09-30", "val": 430081000, "accn": "0001234567-24-000050", "fy": 2024, "fp": "Q3", "form": "10-Q", "filed": "2024-11-07"}
+      ]}},
+      "OperatingIncomeLoss": {"units": {"USD": [
+        {"start": "2024-01-01", "end": "2024-12-31", "val": -155000000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}},
+      "NetIncomeLoss": {"units": {"USD": [
+        {"start": "2024-01-01", "end": "2024-12-31", "val": -78800000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}},
+      "NetCashProvidedByUsedInOperatingActivities": {"units": {"USD": [
+        {"start": "2024-01-01", "end": "2024-12-31", "val": 445000000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}},
+      "PaymentsToAcquirePropertyPlantAndEquipment": {"units": {"USD": [
+        {"start": "2024-01-01", "end": "2024-12-31", "val": 200000000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}},
+      "DepreciationDepletionAndAmortization": {"units": {"USD": [
+        {"start": "2024-01-01", "end": "2024-12-31", "val": 180000000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}},
+      "CashAndCashEquivalentsAtCarryingValue": {"units": {"USD": [
+        {"end": "2024-12-31", "val": 150000000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}},
+      "ConvertibleNotesPayableNoncurrent": {"units": {"USD": [
+        {"end": "2024-12-31", "val": 1280000000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}},
+      "WeightedAverageNumberOfDilutedSharesOutstanding": {"units": {"shares": [
+        {"start": "2024-01-01", "end": "2024-12-31", "val": 340000000, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}},
+      "SomeUnmappedThing": {"units": {"USD": [
+        {"start": "2024-01-01", "end": "2024-12-31", "val": 1, "accn": "0001234567-25-000010", "fy": 2024, "fp": "FY", "form": "10-K", "filed": "2025-02-20"}
+      ]}}
+    }
+  }
+}

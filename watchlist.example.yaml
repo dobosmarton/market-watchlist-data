@@ -1,0 +1,63 @@
+# Example watchlist. Copy it to watchlist.yaml (gitignored) and replace the companies with your own:
+#   cp watchlist.example.yaml watchlist.yaml
+#
+# Adding a company = adding one entry here.
+#
+# Identifiers
+#   isin   listing identifier (verify new entries against the exchange page)
+#   lei    filing identifier for ESEF (filings.xbrl.org). `wl resolve-ids` fills missing LEIs from GLEIF.
+#   cik    SEC identifier for companies that file with the SEC (10-K, 20-F, 40-F)
+#
+# Sources
+#   prices:     twelvedata | yahoo        (euronext download provider: milestone 2)
+#   financials: sec | esef | manual       (manual = annual report extraction, milestone 2)
+#
+# fiscal_year_end_month defaults to 12; set it for companies whose fiscal year ends elsewhere.
+
+companies:
+  # US listings: Twelve Data prices, SEC financials
+  - slug: aapl
+    name: Apple
+    group: Technology
+    isin: US0378331005
+    cik: 320193
+    fiscal_year_end_month: 9
+    listing: { mic: XNGS, ticker: AAPL, ccy: USD, yahoo: AAPL }
+    reporting_ccy: USD
+    sources: { prices: twelvedata, financials: sec }
+
+  - slug: msft
+    name: Microsoft
+    group: Technology
+    isin: US5949181045
+    cik: 789019
+    fiscal_year_end_month: 6
+    listing: { mic: XNGS, ticker: MSFT, ccy: USD, yahoo: MSFT }
+    reporting_ccy: USD
+    sources: { prices: twelvedata, financials: sec }
+
+  # EU listings: Yahoo prices, ESEF financials (run `wl resolve-ids` to fill in the LEIs)
+  - slug: asml
+    name: ASML
+    group: Technology
+    isin: NL0010273215
+    listing: { mic: XAMS, ticker: ASML, ccy: EUR, yahoo: ASML.AS }
+    reporting_ccy: EUR
+    sources: { prices: yahoo, financials: esef }
+
+  - slug: novo-b
+    name: Novo Nordisk B
+    group: Healthcare
+    isin: DK0062498333
+    listing: { mic: XCSE, ticker: NOVO B, ccy: DKK, yahoo: NOVO-B.CO }
+    reporting_ccy: DKK
+    sources: { prices: yahoo, financials: esef }
+
+  # German listings are not on filings.xbrl.org, so their financials are manual for now
+  - slug: sap
+    name: SAP
+    group: Software
+    isin: DE0007164600
+    listing: { mic: XETR, ticker: SAP, ccy: EUR, yahoo: SAP.DE }
+    reporting_ccy: EUR
+    sources: { prices: yahoo, financials: manual }

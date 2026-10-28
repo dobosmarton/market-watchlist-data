@@ -1,0 +1,6 @@
+{"meta": {"symbol": "ACME", "interval": "1day", "currency": "USD", "exchange": "NYSE", "type": "Common Stock"},
+ "values": [
+  {"datetime": "2026-10-26", "open": "200.1", "high": "205.0", "low": "198.0", "close": "204.5", "volume": "3000000"},
+  {"datetime": "2026-10-27", "open": "204.5", "high": "210.0", "low": "203.0", "close": "208.0", "volume": "3500000"}
+ ],
+ "status": "ok"}

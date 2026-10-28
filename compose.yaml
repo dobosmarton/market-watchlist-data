@@ -1,0 +1,17 @@
+# Milestone 1: one-shot jobs. Dagster webserver/daemon and the MCP server join in milestones 3-4.
+services:
+  refresh:
+    build: .
+    command: ["refresh", "all"]
+    env_file: .env
+    volumes:
+      - ./watchlist.yaml:/app/watchlist.yaml:ro
+      - ./data:/data
+      - ./exports:/exports
+  export:
+    build: .
+    command: ["export"]
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - ./exports:/exports

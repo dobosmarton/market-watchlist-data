@@ -1,0 +1,10 @@
+{"documentInfo": {"documentType": "https://xbrl.org/2021/xbrl-json"},
+ "facts": {
+  "f1": {"value": "3300000000", "decimals": -5, "dimensions": {"concept": "ifrs-full:Revenue", "entity": "lei:EXAMPLE0LEI000000001", "period": "2024-01-01T00:00:00/2025-01-01T00:00:00", "unit": "iso4217:EUR"}},
+  "f2": {"value": "450000000", "dimensions": {"concept": "ifrs-full:ProfitLossFromOperatingActivities", "entity": "lei:EXAMPLE0LEI000000001", "period": "2024-01-01T00:00:00/2025-01-01T00:00:00", "unit": "iso4217:EUR"}},
+  "f3": {"value": "250000000", "dimensions": {"concept": "ifrs-full:CashAndCashEquivalents", "entity": "lei:EXAMPLE0LEI000000001", "period": "2025-01-01T00:00:00", "unit": "iso4217:EUR"}},
+  "f4": {"value": "1100000000", "dimensions": {"concept": "ifrs-full:Revenue", "entity": "lei:EXAMPLE0LEI000000001", "period": "2024-01-01T00:00:00/2025-01-01T00:00:00", "unit": "iso4217:EUR", "ifrs-full:SegmentsAxis": "euroco:BuildingMember"}},
+  "f5": {"value": "Euro Co N.V.", "dimensions": {"concept": "ifrs-full:NameOfReportingEntityOrOtherMeansOfIdentification", "entity": "lei:EXAMPLE0LEI000000001", "period": "2024-01-01T00:00:00/2025-01-01T00:00:00"}},
+  "f6": {"value": "n/a", "dimensions": {"concept": "ifrs-full:Borrowings", "entity": "lei:EXAMPLE0LEI000000001", "period": "2025-01-01T00:00:00", "unit": "iso4217:EUR"}},
+  "f7": {"value": "110000000", "dimensions": {"concept": "ifrs-full:WeightedAverageShares", "entity": "lei:EXAMPLE0LEI000000001", "period": "2024-01-01T00:00:00/2025-01-01T00:00:00", "unit": "xbrli:shares"}}
+ }}
