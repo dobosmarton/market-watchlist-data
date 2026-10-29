@@ -2,28 +2,23 @@
 
 from __future__ import annotations
 
+import time
 from datetime import date
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from wl.http import get_bytes
 from wl.models import PriceBar
+from wl.sources.base import ProviderError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import httpx
 
     from wl.config import Company
-
-
-class PriceProvider(Protocol):
-    name: str
-
-    def fetch_daily(self, company: Company, start: date, end: date) -> list[PriceBar]: ...
-
-
-class ProviderError(RuntimeError):
-    """A provider answered, but with an error instead of data."""
+    from wl.models import DateRange
 
 
 # ---------------------------------------------------------------- Twelve Data (US listings)
@@ -58,21 +53,26 @@ class TwelveDataProvider:
 
     name = "twelvedata"
     url = "https://api.twelvedata.com/time_series"
+    seconds_between_requests = 60 / 8
 
-    def __init__(self, client: httpx.Client, api_key: str) -> None:
+    def __init__(
+        self,
+        client: httpx.Client,
+        api_key: str,
+        window: DateRange,
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         self._client = client
         self._api_key = api_key
+        self._window = window
+        self._sleep = sleep
 
-    def fetch_daily(self, company: Company, start: date, end: date) -> list[PriceBar]:
-        params = {
-            "symbol": company.listing.ticker,
-            "interval": "1day",
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-            "order": "asc",
-            "apikey": self._api_key,
-        }
-        series = _TdSeries.model_validate_json(get_bytes(self._client, self.url, params))
+    def fetch(self, company: Company) -> list[PriceBar]:
+        try:
+            series = self._request(company)
+        finally:
+            self._sleep(self.seconds_between_requests)  # failed requests count too
         if series.status != "ok":
             raise ProviderError(series.message or "Twelve Data returned an error")
         ccy = (series.meta.currency if series.meta else None) or company.listing.ccy
@@ -84,6 +84,17 @@ class TwelveDataProvider:
             for v in series.values
         ]  # fmt: skip
 
+    def _request(self, company: Company) -> _TdSeries:
+        params = {
+            "symbol": company.listing.ticker,
+            "interval": "1day",
+            "start_date": self._window.start.isoformat(),
+            "end_date": self._window.end.isoformat(),
+            "order": "asc",
+            "apikey": self._api_key,
+        }
+        return _TdSeries.model_validate_json(get_bytes(self._client, self.url, params))
+
 
 # ---------------------------------------------------------------- Yahoo, unofficial
 class YahooProvider:
@@ -91,7 +102,10 @@ class YahooProvider:
 
     name = "yahoo"
 
-    def fetch_daily(self, company: Company, start: date, end: date) -> list[PriceBar]:
+    def __init__(self, window: DateRange) -> None:
+        self._window = window
+
+    def fetch(self, company: Company) -> list[PriceBar]:
         try:
             import yfinance as yf  # noqa: PLC0415  (optional dependency)
         except ImportError as exc:
@@ -100,7 +114,11 @@ class YahooProvider:
 
         # yfinance is untyped; treat its pandas frame as Any and validate into PriceBar.
         ticker: Any = yf.Ticker(company.listing.yahoo)
-        frame: Any = ticker.history(start=start.isoformat(), end=end.isoformat(), auto_adjust=False)
+        frame: Any = ticker.history(
+            start=self._window.start.isoformat(),
+            end=self._window.end.isoformat(),
+            auto_adjust=False,
+        )
         return [
             PriceBar(
                 slug=company.slug,

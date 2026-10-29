@@ -1,8 +1,9 @@
-"""Typed records that flow from sources into storage."""
+"""Typed records that flow from sources into storage, and the values sources are asked for."""
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
 
 from pydantic import BaseModel, ConfigDict
 
@@ -50,6 +51,14 @@ class Fact(_Record):
     source_url: str
 
 
-class FetchMeta(_Record):
-    source: str
-    fetched_at: datetime
+@dataclass(frozen=True)
+class DateRange:
+    """Inclusive range of calendar days."""
+
+    start: date
+    end: date
+
+    @classmethod
+    def last_days(cls, days: int) -> DateRange:
+        today = datetime.now(UTC).date()
+        return cls(today - timedelta(days=days), today)

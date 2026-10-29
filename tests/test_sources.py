@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -9,13 +10,17 @@ import respx
 from hypothesis import given
 from hypothesis import strategies as st
 
+from wl.models import DateRange
 from wl.sources import esef, fx, gleif, sec
-from wl.sources.prices import ProviderError, TwelveDataProvider
+from wl.sources.base import MissingIdentifierError, ProviderError
+from wl.sources.prices import TwelveDataProvider
 
 from .conftest import fixture_bytes, make_company
 
 if TYPE_CHECKING:
     from wl.config import Watchlist
+
+OCTOBER = DateRange(date(2026, 10, 1), date(2026, 10, 27))
 
 
 # ---------------------------------------------------------------- FX
@@ -24,7 +29,8 @@ def test_fx_range(client: httpx.Client) -> None:
     route = respx.get(url__startswith=fx.BASE_URL).mock(
         return_value=httpx.Response(200, content=fixture_bytes("frankfurter_range.json"))
     )
-    rates = fx.fetch_rates(client, date(2026, 10, 26), date(2026, 10, 27), {"EUR", "USD", "NOK"})
+    window = DateRange(date(2026, 10, 26), date(2026, 10, 27))
+    rates = fx.fetch_rates(client, window, {"EUR", "USD", "NOK"})
     assert route.calls.last.request.url.params["symbols"] == "NOK,USD"
     assert len(rates) == 8
     assert rates[0].date == date(2026, 10, 26)
@@ -32,7 +38,7 @@ def test_fx_range(client: httpx.Client) -> None:
 
 
 def test_fx_nothing_to_fetch(client: httpx.Client) -> None:
-    assert fx.fetch_rates(client, date(2026, 1, 1), date(2026, 1, 2), {"EUR"}) == []
+    assert fx.fetch_rates(client, OCTOBER, {"EUR"}) == []
 
 
 # ---------------------------------------------------------------- SEC
@@ -52,13 +58,14 @@ def test_sec_fetch_uses_padded_cik(client: httpx.Client) -> None:
     route = respx.get("https://data.sec.gov/api/xbrl/companyfacts/CIK0001234567.json").mock(
         return_value=httpx.Response(200, content=fixture_bytes("sec_companyfacts.json"))
     )
-    facts = sec.fetch_facts(client, make_company())
+    facts = sec.SecProvider(client).fetch(make_company())
     assert route.called
     assert facts
 
 
-def test_sec_without_cik_returns_nothing(client: httpx.Client) -> None:
-    assert sec.fetch_facts(client, make_company(cik=None)) == []
+def test_sec_without_cik_is_a_missing_identifier(client: httpx.Client) -> None:
+    with pytest.raises(MissingIdentifierError, match="cik"):
+        sec.SecProvider(client).fetch(make_company(cik=None))
 
 
 # ---------------------------------------------------------------- ESEF
@@ -93,7 +100,7 @@ def test_esef_fetch(client: httpx.Client, watchlist: Watchlist) -> None:
     report = respx.get(url__regex=r".*/ESEF/NL/1/report\.json").mock(
         return_value=httpx.Response(200, content=fixture_bytes("oim_report.json"))
     )
-    facts = esef.fetch_facts(client, watchlist.get("euro-co"))
+    facts = esef.EsefProvider(client).fetch(watchlist.get("euro-co"))
 
     params = listing.calls.last.request.url.params
     assert params["filter[entity.identifier]"] == "EXAMPLE0LEI000000001"
@@ -112,8 +119,9 @@ def test_esef_fetch(client: httpx.Client, watchlist: Watchlist) -> None:
     assert by_tag["Revenue"].filed == date(2025, 4, 1)
 
 
-def test_esef_without_lei_returns_nothing(client: httpx.Client) -> None:
-    assert esef.fetch_facts(client, make_company(financials="esef")) == []
+def test_esef_without_lei_is_a_missing_identifier(client: httpx.Client) -> None:
+    with pytest.raises(MissingIdentifierError, match="lei"):
+        esef.EsefProvider(client).fetch(make_company(financials="esef"))
 
 
 # ---------------------------------------------------------------- prices
@@ -122,12 +130,21 @@ def test_twelvedata(client: httpx.Client) -> None:
     route = respx.get(TwelveDataProvider.url).mock(
         return_value=httpx.Response(200, content=fixture_bytes("twelvedata_series.json"))
     )
-    bars = TwelveDataProvider(client, "k").fetch_daily(
-        make_company(), date(2026, 10, 1), date(2026, 10, 27)
-    )
+    bars = TwelveDataProvider(client, "k", OCTOBER, sleep=lambda _: None).fetch(make_company())
     assert route.calls.last.request.url.params["symbol"] == "ACME"
     assert [b.close for b in bars] == [204.5, 208.0]
     assert bars[0].ccy == "USD"
+
+
+@respx.mock
+@pytest.mark.parametrize("payload", [{"status": "ok", "values": []}, {"status": "error"}])
+def test_twelvedata_waits_after_every_request(client: httpx.Client, payload: object) -> None:
+    respx.get(TwelveDataProvider.url).mock(return_value=httpx.Response(200, json=payload))
+    sleeps: list[float] = []
+    provider = TwelveDataProvider(client, "k", OCTOBER, sleep=sleeps.append)
+    with contextlib.suppress(ProviderError):
+        provider.fetch(make_company())
+    assert sleeps == [7.5]  # free plan: 8 requests a minute
 
 
 @respx.mock
@@ -135,10 +152,9 @@ def test_twelvedata_error(client: httpx.Client) -> None:
     respx.get(TwelveDataProvider.url).mock(
         return_value=httpx.Response(200, json={"status": "error", "message": "plan limit"})
     )
+    provider = TwelveDataProvider(client, "k", OCTOBER, sleep=lambda _: None)
     with pytest.raises(ProviderError, match="plan limit"):
-        TwelveDataProvider(client, "k").fetch_daily(
-            make_company(), date(2026, 10, 1), date(2026, 10, 27)
-        )
+        provider.fetch(make_company())
 
 
 # ---------------------------------------------------------------- GLEIF and retries

@@ -9,13 +9,16 @@ from pydantic import BaseModel, Field
 
 from wl.http import get_bytes
 from wl.models import Fact
+from wl.sources.base import MissingIdentifierError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     import httpx
 
     from wl.config import Company
 
-URL = "https://data.sec.gov/api/xbrl/companyfacts/{cik}.json"
+URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 SOURCE = "sec"
 # Annual filing forms whose facts we keep: domestic, foreign private issuer, Canadian MJDS.
 ANNUAL_FORMS = frozenset({"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"})
@@ -43,40 +46,51 @@ class _CompanyFacts(BaseModel):
     facts: dict[str, dict[str, _Concept]]
 
 
+class SecProvider:
+    name = SOURCE
+
+    def __init__(self, client: httpx.Client) -> None:
+        self._client = client
+
+    def fetch(self, company: Company) -> list[Fact]:
+        if company.cik is None:
+            msg = "no cik in watchlist.yaml"
+            raise MissingIdentifierError(msg)
+        url = URL.format(cik=company.cik)
+        return parse_company_facts(company, get_bytes(self._client, url), url)
+
+
 def parse_company_facts(company: Company, raw: bytes, source_url: str) -> list[Fact]:
     """Keep facts from annual filings only; quarterly data comes from releases (milestone 2)."""
     payload = _CompanyFacts.model_validate_json(raw)
-    out: list[Fact] = []
-    for taxonomy, concepts in payload.facts.items():
-        if taxonomy not in TAXONOMIES:
-            continue
-        for tag, concept in concepts.items():
-            for unit, observations in concept.units.items():
-                out.extend(
-                    Fact(
-                        slug=company.slug,
-                        taxonomy=taxonomy,
-                        tag=tag,
-                        unit=unit,
-                        period_start=obs.start,
-                        period_end=obs.end,
-                        value=obs.val,
-                        fiscal_year=obs.fy,
-                        fiscal_period=obs.fp,
-                        form=obs.form,
-                        filed=obs.filed,
-                        accession=obs.accn,
-                        source=SOURCE,
-                        source_url=source_url,
-                    )
-                    for obs in observations
-                    if obs.form in ANNUAL_FORMS
-                )
-    return out
+    return [
+        Fact(
+            slug=company.slug,
+            taxonomy=taxonomy,
+            tag=tag,
+            unit=unit,
+            period_start=obs.start,
+            period_end=obs.end,
+            value=obs.val,
+            fiscal_year=obs.fy,
+            fiscal_period=obs.fp,
+            form=obs.form,
+            filed=obs.filed,
+            accession=obs.accn,
+            source=SOURCE,
+            source_url=source_url,
+        )
+        for taxonomy, tag, unit, obs in _annual_observations(payload)
+    ]
 
 
-def fetch_facts(client: httpx.Client, company: Company) -> list[Fact]:
-    if company.cik_padded is None:
-        return []
-    url = URL.format(cik=company.cik_padded)
-    return parse_company_facts(company, get_bytes(client, url), url)
+def _annual_observations(payload: _CompanyFacts) -> Iterator[tuple[str, str, str, _Observation]]:
+    return (
+        (taxonomy, tag, unit, obs)
+        for taxonomy, concepts in payload.facts.items()
+        if taxonomy in TAXONOMIES
+        for tag, concept in concepts.items()
+        for unit, observations in concept.units.items()
+        for obs in observations
+        if obs.form in ANNUAL_FORMS
+    )

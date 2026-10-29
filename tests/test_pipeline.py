@@ -1,26 +1,27 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime, timedelta
+from datetime import date
 from typing import TYPE_CHECKING
 
 import httpx
 import pytest
-import respx
 
-from wl import pipeline
+from wl.config import Watchlist
 from wl.export import write_exports
 from wl.models import Fact, FxRate, PriceBar
-from wl.sources import esef, fx
-from wl.sources.prices import TwelveDataProvider, YahooProvider
+from wl.pipeline import CompanyJob, FxJob, Job, build_jobs
+from wl.sources.base import MissingIdentifierError, ProviderError
 
-from .conftest import fixture_bytes, make_company, one
+from .conftest import make_company, one
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
-    from wl.config import Watchlist
+    from wl.config import Company
     from wl.settings import Settings
+    from wl.sources.base import Provider
     from wl.store import Store
 
 
@@ -34,7 +35,7 @@ def _fact(tag: str, value: float, *, start: date | None, end: date, unit: str = 
 @pytest.fixture
 def loaded(store: Store, watchlist: Watchlist) -> Store:
     """ACME with one fiscal year of facts, two price bars, and EUR/USD."""
-    pipeline.sync_companies(store, watchlist)
+    store.sync_companies(watchlist.companies)
     y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
     store.replace_facts(
         "acme",
@@ -64,15 +65,14 @@ def loaded(store: Store, watchlist: Watchlist) -> Store:
     store.upsert_fx(
         [FxRate(date=date(2026, 10, 27), base="EUR", quote="USD", rate=1.1, source="t")]
     )
-    store.build_marts()
     return store
 
 
 def test_fin_annual(loaded: Store) -> None:
-    row = loaded.con.execute(
-        "SELECT fiscal_year, revenue, op_margin_pct, fcf, ebitda, debt, ccy FROM fin_annual"
-    ).fetchall()
-    assert row == [(2024, 2e9, 10.0, 4e8, 3e8, 1e9, "USD")]
+    row = one(
+        loaded, "SELECT fiscal_year, revenue, op_margin_pct, fcf, ebitda, debt, ccy FROM fin_annual"
+    )
+    assert row == (2024, 2e9, 10.0, 4e8, 3e8, 1e9, "USD")
 
 
 def test_valuation(loaded: Store) -> None:
@@ -91,7 +91,7 @@ def test_valuation(loaded: Store) -> None:
 
 def test_valuation_converts_quote_to_reporting_currency(store: Store) -> None:
     company = make_company("eu", ccy="NOK", reporting_ccy="USD")
-    store.sync_companies([("eu", "EU", "g", "NOK", "USD", 12)])
+    store.sync_companies([company])
     y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
     store.replace_facts("eu", [
         f.model_copy(update={"slug": "eu"}) for f in (
@@ -111,7 +111,6 @@ def test_valuation_converts_quote_to_reporting_currency(store: Store) -> None:
             FxRate(date=date(2026, 10, 27), base="EUR", quote="USD", rate=1.1, source="t"),
         ]
     )
-    store.build_marts()
     price_rep, pe = one(store, "SELECT price_rep, pe_ttm FROM valuation WHERE slug = 'eu'")
     assert price_rep == pytest.approx(11.0)  # 110 NOK = 10 EUR = 11 USD
     assert pe == pytest.approx(11.0)
@@ -139,75 +138,104 @@ def test_replace_facts_rolls_back_on_error(loaded: Store) -> None:
     object.__setattr__(bad, "value", "not a number")
     with pytest.raises(Exception):  # noqa: B017, PT011
         loaded.replace_facts("acme", [bad])
-    count = loaded.con.execute("SELECT count(*) FROM raw_facts WHERE slug = 'acme'").fetchone()
-    assert count == (11,)
+    assert one(loaded, "SELECT count(*) FROM raw_facts WHERE slug = 'acme'") == (11,)
 
 
 # ---------------------------------------------------------------- refresh jobs
-@respx.mock
-def test_refresh_jobs(
-    store: Store, watchlist: Watchlist, settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client = httpx.Client()
-    respx.get(url__startswith=fx.BASE_URL).mock(
-        return_value=httpx.Response(200, content=fixture_bytes("frankfurter_range.json"))
+def _bar() -> PriceBar:
+    return PriceBar(
+        slug="acme", date=date(2026, 10, 27), open=None, high=None, low=None, close=1.0,
+        volume=None, ccy="USD", source="fake",
+    )  # fmt: skip
+
+
+class _Returns:
+    def __init__(self, *bars: PriceBar) -> None:
+        self._bars = list(bars)
+
+    def fetch(self, company: Company) -> list[PriceBar]:
+        return [bar.model_copy(update={"slug": company.slug}) for bar in self._bars]
+
+
+class _Raises:
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    def fetch(self, company: Company) -> list[PriceBar]:  # noqa: ARG002  (Provider signature)
+        raise self._error
+
+
+def _prices_job(store: Store, providers: dict[str, Provider[PriceBar]]) -> CompanyJob[PriceBar]:
+    def write(_company: Company, bars: Sequence[PriceBar]) -> int:
+        return store.upsert_prices(bars)
+
+    return CompanyJob(Job.PRICES, lambda c: c.sources.prices, providers, write)
+
+
+def _watchlist(*prices_sources: str) -> Watchlist:
+    return Watchlist(
+        companies=tuple(
+            make_company(f"c{i}", prices=source) for i, source in enumerate(prices_sources)
+        )
     )
-    respx.get(TwelveDataProvider.url).mock(
-        return_value=httpx.Response(200, content=fixture_bytes("twelvedata_series.json"))
-    )
-    respx.get(url__startswith="https://data.sec.gov").mock(
-        return_value=httpx.Response(200, content=fixture_bytes("sec_companyfacts.json"))
-    )
-    respx.get(f"{esef.BASE}/api/filings").mock(return_value=httpx.Response(404))
-
-    def no_yahoo(_self: YahooProvider, *_args: object) -> list[PriceBar]:
-        return [
-            PriceBar(slug="euro-co", date=datetime.now(UTC).date() - timedelta(days=1), open=None,
-                     high=None, low=None, close=30.0, volume=None, ccy="EUR", source="yahoo")
-        ]  # fmt: skip
-
-    monkeypatch.setattr(YahooProvider, "fetch_daily", no_yahoo)
-    pipeline.sync_companies(store, watchlist)
-
-    fx_report = pipeline.refresh_fx(store, client, watchlist, days=5)
-    assert fx_report.rows == 8
-
-    sleeps: list[float] = []
-    prices = pipeline.refresh_prices(store, client, watchlist, settings, sleep=sleeps.append)
-    assert prices.ok == ["acme", "euro-co"]
-    assert prices.rows == 3
-    assert sleeps == [7.5]
-
-    fin = pipeline.refresh_financials(store, client, watchlist)
-    assert fin.ok == ["acme"]
-    assert set(fin.failed) == {"euro-co"}
-    assert "1 failed (euro-co)" in fin.summary()
-    store.build_marts()
 
 
-def test_refresh_prices_skips_and_reports_failures(
-    store: Store, settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from wl.config import Watchlist  # noqa: PLC0415
-    from wl.sources.prices import ProviderError  # noqa: PLC0415
+def test_fx_job_fetches_every_watchlist_currency(store: Store, watchlist: Watchlist) -> None:
+    requested: list[set[str]] = []
 
-    def broken(_self: YahooProvider, *_args: object) -> list[PriceBar]:
-        msg = "yahoo changed"
-        raise ProviderError(msg)
+    def fetch(currencies: set[str]) -> list[FxRate]:
+        requested.append(currencies)
+        return [FxRate(date=date(2026, 10, 27), base="EUR", quote="USD", rate=1.1, source="t")]
 
-    monkeypatch.setattr(YahooProvider, "fetch_daily", broken)
-    watchlist = Watchlist(companies=(make_company("a"), make_company("b", prices="yahoo")))
+    report = FxJob(fetch, store.upsert_fx).run(watchlist)
+    assert (requested, report.rows) == ([{"EUR", "USD"}], 1)
+
+
+def test_company_job_writes_each_company(store: Store) -> None:
+    job = _prices_job(store, {"twelvedata": _Returns(_bar())})
+    report = job.run(_watchlist("twelvedata", "twelvedata"))
+    assert (report.ok, report.rows) == (["c0", "c1"], 2)
+
+
+def test_company_job_skips_companies_without_a_provider(store: Store) -> None:
+    report = _prices_job(store, {}).run(_watchlist("yahoo"))
+    assert report.skipped == {"c0": "no yahoo provider configured"}
+
+
+def test_company_job_skips_companies_missing_an_identifier(store: Store) -> None:
+    job = _prices_job(store, {"yahoo": _Raises(MissingIdentifierError("no cik"))})
+    assert job.run(_watchlist("yahoo")).skipped == {"c0": "no cik"}
+
+
+@pytest.mark.parametrize(
+    "error", [ProviderError("yahoo changed"), httpx.ConnectError("yahoo changed")]
+)
+def test_one_failing_company_does_not_stop_the_others(store: Store, error: Exception) -> None:
+    job = _prices_job(store, {"yahoo": _Raises(error), "twelvedata": _Returns(_bar())})
+    report = job.run(_watchlist("yahoo", "twelvedata"))
+    assert (report.failed, report.ok) == ({"c0": "yahoo changed"}, ["c1"])
+
+
+def test_report_lines_list_failed_and_skipped_companies(store: Store) -> None:
+    job = _prices_job(store, {"yahoo": _Raises(ProviderError("down"))})
+    report = job.run(_watchlist("yahoo", "twelvedata"))
+    assert report.lines() == [
+        "prices: 0 rows, 0 ok, 1 skipped, 1 failed (c0)",
+        "  failed  c0: down",
+        "  skipped c1: no twelvedata provider configured",
+    ]
+
+
+def test_prices_without_twelvedata_key_are_skipped(store: Store, settings: Settings) -> None:
     no_key = settings.model_copy(update={"twelvedata_api_key": None})
     with httpx.Client() as client:
-        report = pipeline.refresh_prices(store, client, watchlist, no_key)
-    assert report.skipped == {"a": "no twelvedata provider configured"}
-    assert report.failed == {"b": "yahoo changed"}
-    assert "1 skipped" in report.summary()
+        report = build_jobs(store, client, no_key)[Job.PRICES].run(_watchlist("twelvedata"))
+    assert report.skipped == {"c0": "no twelvedata provider configured"}
 
 
-def test_refresh_financials_skips(store: Store) -> None:
-    from wl.config import Watchlist  # noqa: PLC0415
-
+def test_financials_skip_manual_companies_and_missing_identifiers(
+    store: Store, settings: Settings
+) -> None:
     watchlist = Watchlist(
         companies=(
             make_company("m", financials="manual"),
@@ -216,9 +244,9 @@ def test_refresh_financials_skips(store: Store) -> None:
         )
     )
     with httpx.Client() as client:
-        report = pipeline.refresh_financials(store, client, watchlist)
+        report = build_jobs(store, client, settings)[Job.FINANCIALS].run(watchlist)
     assert report.skipped == {
-        "m": "manual source (milestone 2)",
-        "s": "missing identifier (cik or lei)",
-        "e": "missing identifier (cik or lei)",
+        "m": "no manual provider configured",
+        "s": "no cik in watchlist.yaml",
+        "e": "no lei in watchlist.yaml (run `wl resolve-ids`)",
     }

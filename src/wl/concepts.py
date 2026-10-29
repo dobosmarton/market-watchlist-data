@@ -26,19 +26,16 @@ class Concept(StrEnum):
     SHARES_DILUTED = "shares_diluted"
 
 
-KIND: dict[Concept, Kind] = {
-    Concept.REVENUE: "flow",
-    Concept.OPERATING_INCOME: "flow",
-    Concept.NET_INCOME: "flow",
-    Concept.OPERATING_CASH_FLOW: "flow",
-    Concept.CAPEX: "flow",
-    Concept.DEPRECIATION: "flow",
-    Concept.CASH: "instant",
-    Concept.DEBT_TOTAL: "instant",
-    Concept.DEBT_NONCURRENT: "instant",
-    Concept.DEBT_CURRENT: "instant",
-    Concept.SHARES_DILUTED: "flow",
-}
+# Balance-sheet values at the fiscal year end. Everything else, including the weighted
+# average share count, is a flow reported over the fiscal year.
+INSTANTS = frozenset(
+    {Concept.CASH, Concept.DEBT_TOTAL, Concept.DEBT_NONCURRENT, Concept.DEBT_CURRENT}
+)
+
+
+def kind(concept: Concept) -> Kind:
+    return "instant" if concept in INSTANTS else "flow"
+
 
 TAGS: dict[Concept, list[tuple[str, str]]] = {
     Concept.REVENUE: [
@@ -109,7 +106,7 @@ TAGS: dict[Concept, list[tuple[str, str]]] = {
 def concept_rows() -> list[tuple[str, str, str, int, str]]:
     """(concept, taxonomy, tag, priority, kind) rows for the ``concept_map`` table."""
     return [
-        (concept.value, taxonomy, tag, priority, KIND[concept])
+        (concept.value, taxonomy, tag, priority, kind(concept))
         for concept, tags in TAGS.items()
         for priority, (taxonomy, tag) in enumerate(tags)
     ]

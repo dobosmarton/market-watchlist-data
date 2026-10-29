@@ -13,6 +13,8 @@ from wl.models import FxRate
 if TYPE_CHECKING:
     import httpx
 
+    from wl.models import DateRange
+
 BASE_URL = "https://api.frankfurter.dev/v1"
 SOURCE = "frankfurter"
 
@@ -23,13 +25,13 @@ class _RangeResponse(BaseModel):
 
 
 def fetch_rates(
-    client: httpx.Client, start: date, end: date, quotes: set[str], base: str = "EUR"
+    client: httpx.Client, window: DateRange, quotes: set[str], base: str = "EUR"
 ) -> list[FxRate]:
-    """Daily rates for ``base`` → each quote currency between two dates (ECB business days)."""
+    """Daily rates for ``base`` → each quote currency in the window (ECB business days)."""
     symbols = sorted(quotes - {base})
     if not symbols:
         return []
-    url = f"{BASE_URL}/{start.isoformat()}..{end.isoformat()}"
+    url = f"{BASE_URL}/{window.start.isoformat()}..{window.end.isoformat()}"
     payload = _RangeResponse.model_validate_json(
         get_bytes(client, url, {"base": base, "symbols": ",".join(symbols)})
     )

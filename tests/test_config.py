@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import ValidationError
 
-from wl.config import Watchlist, load_watchlist
+from wl.config import Company, Watchlist, load_watchlist
 
 from .conftest import make_company
-
-if TYPE_CHECKING:
-    from wl.config import Company
 
 EXAMPLE_WATCHLIST = Path(__file__).parent.parent / "watchlist.example.yaml"
 
@@ -31,9 +27,12 @@ def test_every_example_sec_company_has_a_cik() -> None:
     assert all(c.cik for c in companies if c.sources.financials == "sec")
 
 
-def test_cik_is_zero_padded() -> None:
-    assert make_company(cik=1234).cik_padded == "CIK0000001234"
-    assert make_company(cik=None).cik_padded is None
+def test_esef_company_without_lei_needs_one() -> None:
+    assert make_company(financials="esef", lei=None).needs_lei
+
+
+def test_sec_company_needs_no_lei() -> None:
+    assert not make_company(financials="sec", lei=None).needs_lei
 
 
 def test_unknown_slug_raises() -> None:
@@ -49,6 +48,4 @@ def test_duplicate_slugs_rejected() -> None:
 
 def test_bad_isin_rejected() -> None:
     with pytest.raises(ValidationError):
-        make_company().model_copy(update={}).model_validate(
-            {**make_company().model_dump(), "isin": "not-an-isin"}
-        )
+        Company.model_validate({**make_company().model_dump(), "isin": "not-an-isin"})

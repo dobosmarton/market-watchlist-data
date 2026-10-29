@@ -22,9 +22,10 @@ def fixture_bytes(name: str) -> bytes:
 
 
 def one(store: Store, sql: str) -> tuple[Any, ...]:
-    row = store.con.execute(sql).fetchone()
-    assert row is not None
-    return row
+    """Return the first row of a query as a tuple."""
+    rows = store.query(sql)
+    assert rows
+    return tuple(rows[0].values())
 
 
 def make_company(  # noqa: PLR0913

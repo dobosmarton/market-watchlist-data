@@ -43,8 +43,9 @@ class Company(_Frozen):
     sources: Sources
 
     @property
-    def cik_padded(self) -> str | None:
-        return None if self.cik is None else f"CIK{self.cik:010d}"
+    def needs_lei(self) -> bool:
+        """ESEF filings are found by LEI; `wl resolve-ids` looks it up from the ISIN."""
+        return self.sources.financials == "esef" and self.lei is None
 
 
 class Watchlist(_Frozen):
