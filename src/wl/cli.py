@@ -19,7 +19,7 @@ from wl.store import Store
 if TYPE_CHECKING:
     import httpx
 
-    from wl.config import Company
+    from wl.config import Company, Watchlist
 
 app = typer.Typer(no_args_is_help=True, help="Watchlist data pipeline.")
 
@@ -36,11 +36,19 @@ def _setup() -> None:
     configure_logging()
 
 
+def _load_watchlist(settings: Settings) -> Watchlist:
+    path = settings.watchlist_path
+    if not path.exists():
+        typer.echo(f"{path} not found. Start from the example: cp watchlist.example.yaml {path}")
+        raise typer.Exit(1)
+    return load_watchlist(path)
+
+
 @app.command()
 def refresh(what: Annotated[What, typer.Argument()] = What.ALL) -> None:
     """Fetch fresh data into the local store; the marts read it from there."""
     settings = Settings()
-    watchlist = load_watchlist(settings.watchlist_path)
+    watchlist = _load_watchlist(settings)
     with Store.open(settings) as store, make_client(settings) as client:
         store.sync_companies(watchlist.companies)
         jobs = build_jobs(store, client, settings)
@@ -63,7 +71,7 @@ def export() -> None:
 @app.command()
 def companies() -> None:
     """List the watchlist and where each company's data comes from."""
-    watchlist = load_watchlist(Settings().watchlist_path)
+    watchlist = _load_watchlist(Settings())
     for c in watchlist.companies:
         ids = f"isin={c.isin or '-'} lei={c.lei or '-'} cik={c.cik or '-'}"
         typer.echo(
@@ -76,7 +84,7 @@ def companies() -> None:
 def resolve_ids() -> None:
     """Look up missing LEIs from GLEIF and print YAML lines to paste into watchlist.yaml."""
     settings = Settings()
-    watchlist = load_watchlist(settings.watchlist_path)
+    watchlist = _load_watchlist(settings)
     with make_client(settings) as client:
         for company in watchlist.companies:
             if company.needs_lei:
