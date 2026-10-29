@@ -6,6 +6,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --all-extras --no-install-project
 
+COPY README.md ./
 COPY src ./src
 RUN uv sync --locked --no-dev --all-extras
 
