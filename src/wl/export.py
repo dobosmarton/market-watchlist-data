@@ -35,7 +35,7 @@ def valuation_rows(store: Store) -> list[Row]:
                market_cap_quote / 1e9 AS mcap_bn, pe_ttm, ev_ebitda,
                fcf_yield_pct AS fcf_yield, net_debt_ebitda AS nd_ebitda, debt_reported,
                op_margin_pct, fin_period_end
-        FROM valuation ORDER BY slug
+        FROM marts.valuation ORDER BY slug
         """
     )
     return [{key: _clean(value) for key, value in row.items()} for row in rows]
@@ -47,7 +47,7 @@ def financial_rows(store: Store) -> list[Row]:
         """
         SELECT slug, fiscal_year, revenue, op_income, op_margin_pct, net_income, fcf, ccy,
                max(abs(revenue)) OVER (PARTITION BY slug) AS largest_revenue
-        FROM fin_annual ORDER BY slug, fiscal_year
+        FROM marts.fin_annual ORDER BY slug, fiscal_year
         """
     )
     return [_financial_row(row) for row in rows]

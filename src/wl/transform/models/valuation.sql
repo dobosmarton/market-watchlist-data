@@ -1,18 +1,14 @@
+MODEL (
+    name marts.valuation,
+    kind VIEW
+);
+
 -- Valuation on the latest annual figures. Market cap uses diluted weighted shares from the
 -- last annual report, converted to the reporting currency with ECB rates (EUR cross).
 -- Companies without borrowings usually tag no debt at all, so missing debt counts as zero once
 -- cash is reported; debt_reported keeps that visible. Without cash there is no net debt or EV.
-CREATE OR REPLACE VIEW fx_latest AS
-SELECT quote, arg_max(rate, date) AS eur_rate, max(date) AS date
-FROM raw_fx
-WHERE base = 'EUR'
-GROUP BY quote
-UNION ALL
-SELECT 'EUR', 1.0, current_date;
-
-CREATE OR REPLACE VIEW valuation AS
 WITH last_year AS (
-    SELECT * FROM fin_annual
+    SELECT * FROM marts.fin_annual
     QUALIFY row_number() OVER (PARTITION BY slug ORDER BY period_end DESC) = 1
 ),
 priced AS (
@@ -25,11 +21,11 @@ priced AS (
         y.cash, y.debt, y.shares_diluted, y.op_margin_pct,
         y.debt IS NOT NULL AS debt_reported,
         coalesce(y.debt, 0) - y.cash AS net_debt
-    FROM companies AS c
-    LEFT JOIN price_stats AS s USING (slug)
+    FROM main.companies AS c
+    LEFT JOIN marts.price_stats AS s USING (slug)
     LEFT JOIN last_year AS y USING (slug)
-    LEFT JOIN fx_latest AS fq ON fq.quote = c.quote_ccy
-    LEFT JOIN fx_latest AS fr ON fr.quote = c.reporting_ccy
+    LEFT JOIN marts.fx_latest AS fq ON fq.quote = c.quote_ccy
+    LEFT JOIN marts.fx_latest AS fr ON fr.quote = c.reporting_ccy
 )
 SELECT
     *,
@@ -41,4 +37,4 @@ SELECT
     fcf / nullif(price_rep * shares_diluted, 0) * 100 AS fcf_yield_pct,
     net_debt / nullif(ebitda, 0) AS net_debt_ebitda,
     (price - wk52_low) / nullif(wk52_high - wk52_low, 0) * 100 AS wk52_pos
-FROM priced;
+FROM priced

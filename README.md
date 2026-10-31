@@ -14,15 +14,17 @@ the dashboard reads.
 watchlist.yaml                 companies, identifiers, and the data source for each one
       │
       ▼
-src/wl/sources/                Frankfurter (ECB FX), Twelve Data, Yahoo, SEC EDGAR, filings.xbrl.org
+src/wl/sources/                Frankfurter (ECB FX), Twelve Data, Yahoo, Euronext, SEC EDGAR,
+                               filings.xbrl.org, hand-entered financials/<slug>.yaml
       │  typed records: FxRate, PriceBar, Fact
       ▼
 raw_fx, raw_prices,            DuckDB file, or DuckLake (SQLite catalog + Parquet)
 raw_facts, companies
-      │  concept_map: US-GAAP and IFRS tags → 11 concepts
+      │  concept_map: US-GAAP, IFRS and manual tags → one concept set
       ▼
-fin_annual, price_stats,       SQL views in src/wl/sql/, rebuilt after every refresh
-valuation
+marts.fin_annual,              SQLMesh view models in src/wl/transform/, built after
+marts.price_stats,             every refresh
+marts.valuation
       │
       ▼
 exports/valuation.json         read by the dashboard
@@ -32,7 +34,8 @@ exports/financials.json
 1. **Refresh** (`wl refresh`) fetches FX, prices and financials company by company. If one
    company fails, it is reported and the others still load. FX and prices are upserted;
    financials are replaced in full for each company, since the sources return full history.
-2. **Marts.** `fin_annual` picks one value per concept and fiscal year (year-long periods only,
+2. **Marts** (`wl build`, also run by `refresh` and `export`). SQLMesh builds the views in the
+   `marts` schema. `fin_annual` picks one value per concept and fiscal year (year-long periods only,
    in the reporting currency) and derives debt, operating margin, free cash flow and EBITDA.
    `price_stats` holds the latest close and the 52-week range. `valuation` joins the latest
    annual figures to the latest price, converting between quote and reporting currency with
@@ -145,7 +148,8 @@ src/wl/
   http.py               shared httpx client with retries
   store.py              DuckDB / DuckLake storage and raw tables
   concepts.py           US-GAAP and IFRS tags mapped onto one concept set
-  sql/                  marts: fin_annual, price_stats, valuation
+  transform/            SQLMesh project: models/ (the marts) and external_models.yaml
+  marts.py              builds the marts with SQLMesh
   pipeline.py           refresh jobs and their wiring; one company failing never stops the rest
   export.py             dashboard JSON
   cli.py                `wl` command
@@ -163,7 +167,7 @@ A few rules hold the design together:
 
 - Sources return typed records from `wl.models`; storage and SQL never see raw API payloads.
 - Money stays in the company's reporting currency in `raw_facts` and `fin_annual`. Currency
-  conversion happens only in `sql/valuation.sql`, using ECB rates.
+  conversion happens only in `transform/models/valuation.sql`, using ECB rates.
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.
 - Tests never touch the network: HTTP is mocked with respx and payloads live in `tests/fixtures/`.
 

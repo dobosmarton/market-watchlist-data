@@ -1,10 +1,12 @@
-"""DuckDB / DuckLake storage. Raw tables are written by sources; marts are SQL views on top."""
+"""DuckDB / DuckLake storage. Raw tables are written by sources; marts are views on top.
+
+The ``marts`` schema is built by SQLMesh (``wl.marts.build_marts``) from ``wl/transform``.
+"""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from importlib import resources
 from typing import TYPE_CHECKING, Self
 
 import duckdb
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
 type Row = dict[str, object]
 
 _SCHEMA = """
+CREATE SCHEMA IF NOT EXISTS marts;  -- filled by SQLMesh; created here for the search path
 CREATE TABLE IF NOT EXISTS raw_fx (
     date DATE NOT NULL, base VARCHAR NOT NULL, quote VARCHAR NOT NULL,
     rate DOUBLE NOT NULL, source VARCHAR NOT NULL, fetched_at TIMESTAMP NOT NULL,
@@ -41,6 +44,10 @@ CREATE TABLE IF NOT EXISTS raw_facts (
     fiscal_year INTEGER, fiscal_period VARCHAR, form VARCHAR, filed DATE, accession VARCHAR,
     source VARCHAR NOT NULL, source_url VARCHAR NOT NULL, fetched_at TIMESTAMP NOT NULL
 );
+CREATE TABLE IF NOT EXISTS concept_map (
+    concept VARCHAR NOT NULL, taxonomy VARCHAR NOT NULL, tag VARCHAR NOT NULL,
+    priority INTEGER NOT NULL, kind VARCHAR NOT NULL
+);
 CREATE TABLE IF NOT EXISTS companies (
     slug VARCHAR PRIMARY KEY, name VARCHAR NOT NULL, grp VARCHAR NOT NULL,
     quote_ccy VARCHAR NOT NULL, reporting_ccy VARCHAR NOT NULL,
@@ -48,24 +55,22 @@ CREATE TABLE IF NOT EXISTS companies (
 );
 """
 
-_MART_FILES = ("fin_annual.sql", "fin_gaps.sql", "price_stats.sql", "valuation.sql")
-
 
 class Store:
-    """A DuckDB connection with typed writes. Once open, the raw tables and marts exist."""
+    """A DuckDB connection with typed writes. Once open, the raw tables exist.
+
+    Unqualified names resolve in ``main`` and then ``marts``, so queries can say ``valuation``.
+    """
 
     def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
         self._con = con
         self._con.execute(_SCHEMA)
-        self._create_marts()
+        self._con.execute("SET search_path = 'main,marts'")
+        self._sync_concept_map()
 
     @classmethod
     def open(cls, settings: Settings) -> Self:
         return cls(_connect(settings))
-
-    @classmethod
-    def memory(cls) -> Self:
-        return cls(duckdb.connect(":memory:"))
 
     def __enter__(self) -> Self:
         return self
@@ -86,7 +91,8 @@ class Store:
         ]
         with self._transaction():
             self._con.execute("DELETE FROM companies")
-            self._con.executemany("INSERT INTO companies VALUES (?, ?, ?, ?, ?, ?)", rows)
+            if rows:  # DuckDB 1.x rejects executemany with no rows
+                self._con.executemany("INSERT INTO companies VALUES (?, ?, ?, ?, ?, ?)", rows)
 
     def upsert_fx(self, rates: Sequence[FxRate]) -> int:
         return self._write("INSERT OR REPLACE INTO raw_fx", rates)
@@ -144,20 +150,15 @@ class Store:
     def gaps(self) -> list[Row]:
         """Companies whose latest fiscal year misses concepts (``period_end`` None: no years)."""
         return self.query(
-            "SELECT slug, period_end, array_to_string(missing, ', ') AS missing FROM fin_gaps"
+            "SELECT slug, period_end, array_to_string(missing, ', ') AS missing FROM marts.fin_gaps"
         )
 
-    # ------------------------------------------------------------------ marts
-    def _create_marts(self) -> None:
-        """(Re)create the mart views so they always match the code. SQLMesh: milestone 2."""
-        self._con.execute(
-            "CREATE OR REPLACE TABLE concept_map "
-            "(concept VARCHAR, taxonomy VARCHAR, tag VARCHAR, priority INTEGER, kind VARCHAR)"
-        )
-        self._con.executemany("INSERT INTO concept_map VALUES (?, ?, ?, ?, ?)", concept_rows())
-        sql_dir = resources.files("wl") / "sql"
-        for name in _MART_FILES:
-            self._con.execute((sql_dir / name).read_text(encoding="utf-8"))
+    # ------------------------------------------------------------------ concept map
+    def _sync_concept_map(self) -> None:
+        """Rewrite ``concept_map`` from ``concepts.py`` so the marts always use the code's map."""
+        with self._transaction():
+            self._con.execute("DELETE FROM concept_map")
+            self._con.executemany("INSERT INTO concept_map VALUES (?, ?, ?, ?, ?)", concept_rows())
 
 
 def _connect(settings: Settings) -> duckdb.DuckDBPyConnection:

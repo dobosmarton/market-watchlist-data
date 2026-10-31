@@ -6,6 +6,8 @@
 - Tests never touch the network: mock HTTP with respx and keep payloads in `tests/fixtures/`.
 - Sources return typed records from `wl.models`; storage and SQL never see raw API payloads.
 - Monetary values stay in the company's reporting currency in `raw_facts` and `fin_annual`;
-  currency conversion happens only in `sql/valuation.sql` using ECB rates.
+  currency conversion happens only in `src/wl/transform/models/valuation.sql` using ECB rates.
+- Marts are SQLMesh view models in `src/wl/transform/models/`; the raw tables they read are
+  declared in `external_models.yaml` (a test checks it against `store.py`).
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.
 - Do not commit `.env`, `data/` or `exports/`.

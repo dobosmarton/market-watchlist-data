@@ -11,6 +11,7 @@ from wl.config import load_watchlist
 from wl.export import write_exports
 from wl.http import make_client
 from wl.log import configure_logging
+from wl.marts import build_marts
 from wl.pipeline import Job, build_jobs
 from wl.settings import Settings
 from wl.sources.gleif import lei_for_isin
@@ -54,14 +55,28 @@ def refresh(what: Annotated[What, typer.Argument()] = What.ALL) -> None:
         jobs = build_jobs(store, client, settings)
         selected = list(jobs.values()) if what is What.ALL else [jobs[Job(what)]]
         reports = [job.run(watchlist) for job in selected]
+    build_marts(settings)
     for report in reports:
         typer.echo("\n".join(report.lines()))
+
+
+@app.command()
+def build() -> None:
+    """Create or update the SQL marts from wl/transform (refresh and export do this too)."""
+    _build(Settings())
+
+
+def _build(settings: Settings) -> None:
+    with Store.open(settings):  # the marts read the raw tables, so they must exist first
+        pass
+    build_marts(settings)
 
 
 @app.command()
 def export() -> None:
     """Write dashboard JSON files to the export directory."""
     settings = Settings()
+    _build(settings)
     with Store.open(settings) as store:
         written = write_exports(store, settings.export_dir)
     for name, count in written.items():
@@ -71,7 +86,9 @@ def export() -> None:
 @app.command()
 def gaps() -> None:
     """List concepts missing from each company's latest fiscal year."""
-    with Store.open(Settings()) as store:
+    settings = Settings()
+    _build(settings)
+    with Store.open(settings) as store:
         rows = store.gaps()
     for row in rows:
         period_end = row["period_end"]

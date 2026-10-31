@@ -26,6 +26,10 @@ test *args:
 refresh *what="all":
     uv run wl refresh {{what}}
 
+# Create or update the SQL marts (SQLMesh models in src/wl/transform)
+build:
+    uv run wl build
+
 # Write the dashboard JSON files
 export:
     uv run wl export

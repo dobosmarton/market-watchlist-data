@@ -1,0 +1,54 @@
+# Tables the Python side owns (wl/store.py creates and writes them); the models read them.
+# test_marts.py checks these columns against the real tables.
+- name: main.raw_fx
+  columns:
+    date: DATE
+    base: VARCHAR
+    quote: VARCHAR
+    rate: DOUBLE
+    source: VARCHAR
+    fetched_at: TIMESTAMP
+- name: main.raw_prices
+  columns:
+    slug: VARCHAR
+    date: DATE
+    open: DOUBLE
+    high: DOUBLE
+    low: DOUBLE
+    close: DOUBLE
+    volume: DOUBLE
+    ccy: VARCHAR
+    source: VARCHAR
+    fetched_at: TIMESTAMP
+- name: main.raw_facts
+  columns:
+    slug: VARCHAR
+    taxonomy: VARCHAR
+    tag: VARCHAR
+    unit: VARCHAR
+    period_start: DATE
+    period_end: DATE
+    value: DOUBLE
+    fiscal_year: INTEGER
+    fiscal_period: VARCHAR
+    form: VARCHAR
+    filed: DATE
+    accession: VARCHAR
+    source: VARCHAR
+    source_url: VARCHAR
+    fetched_at: TIMESTAMP
+- name: main.companies
+  columns:
+    slug: VARCHAR
+    name: VARCHAR
+    grp: VARCHAR
+    quote_ccy: VARCHAR
+    reporting_ccy: VARCHAR
+    fiscal_year_end_month: INTEGER
+- name: main.concept_map
+  columns:
+    concept: VARCHAR
+    taxonomy: VARCHAR
+    tag: VARCHAR
+    priority: INTEGER
+    kind: VARCHAR

@@ -5,12 +5,13 @@ description = "Personal data pipeline for the market-analysis watchlist: prices,
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "duckdb>=1.4",
+    "duckdb>=1.5,<2",  # SQLMesh supports DuckDB 1.x only for now
     "httpx>=0.28",
     "polars>=1.20",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "pyyaml>=6.0",
+    "sqlmesh>=0.236.3,<0.237",
     "structlog>=25.1",
     "tenacity>=9.0",
     "typer>=0.15",
@@ -29,7 +30,6 @@ dev = [
     "inline-snapshot>=0.19",
     "pytest>=8.3",
     "pytest-cov>=6.0",
-    "pytest-xdist>=3.6",
     "respx>=0.22",
     "ruff>=0.11",
     "ty>=0.0.30",
@@ -85,7 +85,7 @@ python-version = "3.13"
 # ---------------------------------------------------------------- tests
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-n auto --cov=src/wl --cov-report=term-missing:skip-covered --cov-fail-under=85"
+addopts = "--cov=src/wl --cov-report=term-missing:skip-covered --cov-fail-under=85"
 filterwarnings = ["error"]
 
 [tool.coverage.run]

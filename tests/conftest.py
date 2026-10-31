@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -8,11 +10,18 @@ import pytest
 from pydantic import SecretStr
 
 from wl.config import Company, Listing, Sources, Watchlist
+from wl.marts import build_marts
 from wl.settings import Settings
 from wl.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+# SQLMesh and its dependencies raise deprecation warnings while importing; warnings are errors
+# in the tests, so import it once here with them silenced. Warnings at run time still fail.
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    import sqlmesh  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -73,9 +82,26 @@ def client() -> Iterator[httpx.Client]:
         yield c
 
 
+@pytest.fixture(scope="session")
+def built_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Build the marts once per session into a store file that each test copies."""
+    template = Settings(
+        data_dir=tmp_path_factory.mktemp("template") / "data",
+        storage="duckdb",
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+    )
+    with Store.open(template):
+        pass
+    build_marts(template)
+    return template.db_path
+
+
 @pytest.fixture
-def store() -> Iterator[Store]:
-    with Store.memory() as s:
+def store(settings: Settings, built_db: Path) -> Iterator[Store]:
+    """Copy the built store into this test's data dir (the same file name keeps the catalog)."""
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(built_db, settings.db_path)
+    with Store.open(settings) as s:
         yield s
 
 
