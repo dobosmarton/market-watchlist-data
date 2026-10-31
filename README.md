@@ -5,7 +5,7 @@ watchlist it collects daily prices, ECB exchange rates and annual reported finan
 sources, stores them in DuckDB, computes valuation ratios in SQL, and writes the two JSON files
 the dashboard reads.
 
-**Status: milestone 1.** It runs end to end from a CLI against the live sources. See
+**Status: milestone 2.** It runs end to end from a CLI against the live sources. See
 [Data caveats](#data-caveats) for what the figures can and cannot tell you.
 
 ## How it works
@@ -37,9 +37,10 @@ exports/financials.json
 2. **Marts** (`wl build`, also run by `refresh` and `export`). SQLMesh builds the views in the
    `marts` schema. `fin_annual` picks one value per concept and fiscal year (year-long periods only,
    in the reporting currency) and derives debt, operating margin, free cash flow and EBITDA.
-   `price_stats` holds the latest close and the 52-week range. `valuation` joins the latest
-   annual figures to the latest price, converting between quote and reporting currency with
-   ECB rates.
+   `fin_ttm` turns 10-Q filers' figures into trailing twelve months and keeps the latest fiscal
+   year for everyone else. `price_stats` holds the latest close and the 52-week range.
+   `valuation` joins `fin_ttm` to the latest price, converting between quote and reporting
+   currency with ECB rates.
 3. **Export** (`wl export`) writes the marts out under the column names the dashboard expects.
 
 ## Your watchlist
@@ -67,7 +68,8 @@ mkdir -p financials && cp financials.example/sap.yaml financials/<slug>.yaml
 
 **`exports/valuation.json`**, one row per company: latest price and date, 52-week low, high and
 position in the range, market cap (bn, quote currency), P/E, EV/EBITDA, FCF yield, net
-debt/EBITDA, operating margin, and the fiscal period end the ratios are based on.
+debt/EBITDA, operating margin, whether any debt was tagged (`debt_reported`), and the basis of
+the ratios: `ttm` or `annual`, with the end of the period they cover (`fin_period_end`).
 
 **`exports/financials.json`**, one row per company and fiscal year: revenue, operating income,
 operating margin, net income and free cash flow, in the reporting currency, scaled to bn or m
@@ -112,9 +114,10 @@ Settings come from environment variables or `.env`, all prefixed `WL_`:
 |---|---|---|
 | `WL_SEC_USER_AGENT` | placeholder | SEC asks for `"<name> <email>"` |
 | `WL_TWELVEDATA_API_KEY` | unset | needed for US prices; without it those companies are skipped |
-| `WL_STORAGE` | `duckdb` | `ducklake` switches to a SQLite catalog with Parquet files |
+| `WL_STORAGE` | `duckdb` | `ducklake` (SQLite catalog with Parquet files) does not work yet, see below |
 | `WL_DATA_DIR`, `WL_EXPORT_DIR` | `data`, `exports` | |
 | `WL_WATCHLIST_PATH` | `watchlist.yaml` | |
+| `WL_MANUAL_DIR` | `financials` | hand-entered figures for `financials: manual` companies |
 | `WL_PRICE_HISTORY_DAYS` | `400` | days of price and FX history fetched on each refresh |
 | `WL_HTTP_TIMEOUT_S` | `30` | |
 
@@ -181,19 +184,16 @@ add the tag to `concepts.py`.
 
 ## Roadmap
 
-The target stack is dlt → DuckLake → SQLMesh → Dagster. Milestone 1 keeps the same shape with
-fewer moving parts, so each piece can be swapped in later without changing the data:
+The target stack is dlt → DuckLake → SQLMesh → Dagster, adopted piece by piece without
+changing the data:
 
-- plain httpx loaders with Pydantic validation instead of dlt
-- SQL views in `src/wl/sql/` instead of SQLMesh models
-- a CLI instead of Dagster (run it from cron or launchd)
-- DuckDB file by default; `WL_STORAGE=ducklake` switches to DuckLake
-
-Next up:
-
-- **Milestone 2:** annual-report extraction for the `manual` companies, a Euronext price
-  provider, quarterly figures, and SQLMesh models in place of the SQL views.
-- **Milestones 3–4:** Dagster webserver and daemon for scheduling, and an MCP server.
+- **Milestone 1:** typed loaders (plain httpx with Pydantic validation instead of dlt), SQL
+  views, and a CLI to run from cron or launchd.
+- **Milestone 2 (done):** hand-entered figures for `manual` companies, a Euronext price
+  provider, trailing twelve months from 10-Qs, and SQLMesh models in place of the SQL views.
+- **Next:** make DuckLake storage work (the raw tables' primary keys and upserts need
+  replacing), then milestones 3–4: Dagster webserver and daemon for scheduling, and an MCP
+  server.
 
 ## Data caveats
 
@@ -206,14 +206,19 @@ and the price providers. What remains worth knowing:
   latest year. `wl unmapped <slug>` shows candidate tags to add to `concepts.py`; tags under
   a company's own prefix that many filers share can be mapped with `ANY_TAXONOMY`.
 - **Share counts**: most ESEF filers tag diluted EPS but not the share count, so
-  `fin_annual` derives it as net income / diluted EPS. Either way the count is the diluted
-  weighted average of the last annual report, so market caps are approximate after
-  buybacks or issuance.
+  `fin_annual` derives it as net income / diluted EPS. Market caps use the diluted weighted
+  average of the latest quarter for 10-Q filers and of the last annual report for everyone
+  else, so they are approximate after buybacks or issuance.
 - **Debt**: companies without borrowings usually tag no debt at all. The valuation counts
   missing debt as zero once cash is reported and exports `debt_reported` so the dashboard
   can mark it; `just gaps` still lists it. Lease liabilities are not counted as debt.
 - **filings.xbrl.org lags**: it can take months after publication for an annual report to
   appear there, so some companies' latest year trails the others.
-- **Ratios use the latest annual report**, not trailing twelve months, even though the
-  dashboard column is called `pe_ttm`.
-- **DuckLake** needs its DuckDB extensions downloaded once (`INSTALL ducklake`).
+- **Ratio basis**: `pe_ttm` and the other ratios are trailing twelve months only for
+  companies that file 10-Qs (`basis = ttm`). Everyone else, including 20-F/40-F, ESEF and
+  manual filers, is valued on the last annual report (`basis = annual`). Within a TTM row, a
+  figure the 10-Qs do not tag keeps its annual value.
+- **DuckLake** storage does not work yet: DuckLake has no primary keys, which the raw tables
+  and their upserts rely on. Keep the default `WL_STORAGE=duckdb` for now.
+- **DuckDB 1.x**: SQLMesh supports DuckDB 1.x only, so it is pinned below 2. A database file
+  written by DuckDB 2 cannot be opened; move it aside and run `just refresh`.

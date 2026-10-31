@@ -10,7 +10,7 @@
 #
 # Sources
 #   prices:     twelvedata | yahoo | euronext   (euronext: Euronext markets only, needs isin)
-#   financials: sec | esef | manual       (manual = annual report extraction, milestone 2)
+#   financials: sec | esef | manual       (manual = figures typed into financials/<slug>.yaml)
 #
 # fiscal_year_end_month defaults to 12; set it for companies whose fiscal year ends elsewhere.
 

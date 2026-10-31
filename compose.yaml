@@ -1,4 +1,4 @@
-# Milestone 1: one-shot jobs. Dagster webserver/daemon and the MCP server join in milestones 3-4.
+# One-shot jobs. Dagster webserver/daemon and the MCP server join in milestones 3-4.
 services:
   refresh:
     build: .
