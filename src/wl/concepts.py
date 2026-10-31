@@ -2,6 +2,9 @@
 
 Order matters: the first tag a company reports for a period wins. Extend a list when a
 company uses a different tag; ``wl unmapped <slug>`` lists candidates.
+
+ESEF filers often report a line item under their own extension prefix (``APM:``, ``WAL:``)
+with a name that many companies share. ``ANY_TAXONOMY`` matches such a tag under any prefix.
 """
 
 from __future__ import annotations
@@ -10,6 +13,8 @@ from enum import StrEnum
 from typing import Literal
 
 type Kind = Literal["flow", "instant"]
+
+ANY_TAXONOMY = "*"
 
 
 class Concept(StrEnum):
@@ -24,6 +29,7 @@ class Concept(StrEnum):
     DEBT_NONCURRENT = "debt_noncurrent"
     DEBT_CURRENT = "debt_current"
     SHARES_DILUTED = "shares_diluted"
+    EPS_DILUTED = "eps_diluted"
 
 
 # Balance-sheet values at the fiscal year end. Everything else, including the weighted
@@ -51,23 +57,35 @@ TAGS: dict[Concept, list[tuple[str, str]]] = {
     ],
     Concept.NET_INCOME: [
         ("us-gaap", "NetIncomeLoss"),
+        ("us-gaap", "NetIncomeLossAvailableToCommonStockholdersBasic"),
         ("ifrs-full", "ProfitLossAttributableToOwnersOfParent"),
         ("ifrs-full", "ProfitLoss"),
     ],
     Concept.OPERATING_CASH_FLOW: [
         ("us-gaap", "NetCashProvidedByUsedInOperatingActivities"),
+        ("us-gaap", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
         ("ifrs-full", "CashFlowsFromUsedInOperatingActivities"),
     ],
     Concept.CAPEX: [
         ("us-gaap", "PaymentsToAcquirePropertyPlantAndEquipment"),
+        ("us-gaap", "PaymentsToAcquireProductiveAssets"),
         ("ifrs-full", "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"),
         ("ifrs-full", "PurchaseOfPropertyPlantAndEquipment"),
+        (
+            "ifrs-full",
+            "PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets",
+        ),
+        (
+            ANY_TAXONOMY,
+            "PurchaseOfPropertyPlantAndEquipmentAndPurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
+        ),
     ],
     Concept.DEPRECIATION: [
         ("us-gaap", "DepreciationDepletionAndAmortization"),
         ("us-gaap", "DepreciationAndAmortization"),
         ("us-gaap", "DepreciationAmortizationAndAccretionNet"),
         ("ifrs-full", "DepreciationAndAmortisationExpense"),
+        ("ifrs-full", "AdjustmentsForDepreciationAndAmortisationExpense"),
         (
             "ifrs-full",
             "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
@@ -86,12 +104,14 @@ TAGS: dict[Concept, list[tuple[str, str]]] = {
     Concept.DEBT_NONCURRENT: [
         ("us-gaap", "LongTermDebtNoncurrent"),
         ("us-gaap", "ConvertibleNotesPayableNoncurrent"),
+        ("us-gaap", "ConvertibleDebtNoncurrent"),
         ("ifrs-full", "NoncurrentPortionOfNoncurrentBorrowings"),
         ("ifrs-full", "LongtermBorrowings"),
     ],
     Concept.DEBT_CURRENT: [
         ("us-gaap", "LongTermDebtCurrent"),
         ("us-gaap", "DebtCurrent"),
+        ("us-gaap", "ConvertibleDebtCurrent"),
         ("ifrs-full", "CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings"),
         ("ifrs-full", "ShorttermBorrowings"),
     ],
@@ -99,6 +119,11 @@ TAGS: dict[Concept, list[tuple[str, str]]] = {
         ("us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding"),
         ("ifrs-full", "AdjustedWeightedAverageShares"),
         ("ifrs-full", "WeightedAverageShares"),
+    ],
+    # Most ESEF filers tag EPS but not the share count; fin_annual derives shares from it.
+    Concept.EPS_DILUTED: [
+        ("us-gaap", "EarningsPerShareDiluted"),
+        ("ifrs-full", "DilutedEarningsLossPerShare"),
     ],
 }
 

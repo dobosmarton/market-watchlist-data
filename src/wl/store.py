@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS companies (
 );
 """
 
-_MART_FILES = ("fin_annual.sql", "price_stats.sql", "valuation.sql")
+_MART_FILES = ("fin_annual.sql", "fin_gaps.sql", "price_stats.sql", "valuation.sql")
 
 
 class Store:
@@ -139,6 +139,12 @@ class Store:
             GROUP BY ALL ORDER BY n DESC LIMIT ?
             """,
             [slug, limit],
+        )
+
+    def gaps(self) -> list[Row]:
+        """Companies whose latest fiscal year misses concepts (``period_end`` None: no years)."""
+        return self.query(
+            "SELECT slug, period_end, array_to_string(missing, ', ') AS missing FROM fin_gaps"
         )
 
     # ------------------------------------------------------------------ marts

@@ -1,4 +1,4 @@
-"""Command line: ``wl refresh``, ``wl export``, ``wl companies``, ``wl resolve-ids``."""
+"""Command line for the watchlist pipeline; `wl --help` lists the commands."""
 
 from __future__ import annotations
 
@@ -66,6 +66,17 @@ def export() -> None:
         written = write_exports(store, settings.export_dir)
     for name, count in written.items():
         typer.echo(f"{settings.export_dir / name}.json: {count} rows")
+
+
+@app.command()
+def gaps() -> None:
+    """List concepts missing from each company's latest fiscal year."""
+    with Store.open(Settings()) as store:
+        rows = store.gaps()
+    for row in rows:
+        period_end = row["period_end"]
+        detail = row["missing"] if period_end else "no annual financials"
+        typer.echo(f"{row['slug']:10} {period_end or '-'!s:10}  {detail}")
 
 
 @app.command()

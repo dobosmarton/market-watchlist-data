@@ -1,5 +1,7 @@
 -- Valuation on the latest annual figures. Market cap uses diluted weighted shares from the
 -- last annual report, converted to the reporting currency with ECB rates (EUR cross).
+-- Companies without borrowings usually tag no debt at all, so missing debt counts as zero once
+-- cash is reported; debt_reported keeps that visible. Without cash there is no net debt or EV.
 CREATE OR REPLACE VIEW fx_latest AS
 SELECT quote, arg_max(rate, date) AS eur_rate, max(date) AS date
 FROM raw_fx
@@ -20,7 +22,9 @@ priced AS (
         -- price converted from quote to reporting currency: price * EUR->rep / EUR->quote
         s.price * fr.eur_rate / fq.eur_rate AS price_rep,
         y.period_end AS fin_period_end, y.revenue, y.op_income, y.net_income, y.fcf, y.ebitda,
-        y.cash, y.debt, y.shares_diluted, y.op_margin_pct
+        y.cash, y.debt, y.shares_diluted, y.op_margin_pct,
+        y.debt IS NOT NULL AS debt_reported,
+        coalesce(y.debt, 0) - y.cash AS net_debt
     FROM companies AS c
     LEFT JOIN price_stats AS s USING (slug)
     LEFT JOIN last_year AS y USING (slug)
@@ -31,11 +35,10 @@ SELECT
     *,
     price_rep * shares_diluted AS market_cap,
     price * shares_diluted AS market_cap_quote,
-    debt - cash AS net_debt,
-    price_rep * shares_diluted + coalesce(debt - cash, 0) AS enterprise_value,
+    price_rep * shares_diluted + net_debt AS enterprise_value,
     (price_rep * shares_diluted) / nullif(net_income, 0) AS pe_ttm,
-    (price_rep * shares_diluted + coalesce(debt - cash, 0)) / nullif(ebitda, 0) AS ev_ebitda,
+    (price_rep * shares_diluted + net_debt) / nullif(ebitda, 0) AS ev_ebitda,
     fcf / nullif(price_rep * shares_diluted, 0) * 100 AS fcf_yield_pct,
-    (debt - cash) / nullif(ebitda, 0) AS net_debt_ebitda,
+    net_debt / nullif(ebitda, 0) AS net_debt_ebitda,
     (price - wk52_low) / nullif(wk52_high - wk52_low, 0) * 100 AS wk52_pos
 FROM priced;

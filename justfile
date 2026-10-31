@@ -30,6 +30,10 @@ refresh *what="all":
 export:
     uv run wl export
 
+# Concepts missing from each company's latest fiscal year
+gaps:
+    uv run wl gaps
+
 # Resolve missing LEIs from GLEIF
 resolve-ids:
     uv run wl resolve-ids

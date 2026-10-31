@@ -32,31 +32,34 @@ def _fact(tag: str, value: float, *, start: date | None, end: date, unit: str = 
     )  # fmt: skip
 
 
+def _acme_facts(*, without: str | None = None) -> list[Fact]:
+    """One complete fiscal year for ACME, optionally without one tag."""
+    y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
+    facts = [
+        _fact("Revenues", 2_000_000_000, start=y0, end=y1),
+        _fact("OperatingIncomeLoss", 200_000_000, start=y0, end=y1),
+        _fact("NetIncomeLoss", 100_000_000, start=y0, end=y1),
+        _fact("NetCashProvidedByUsedInOperatingActivities", 500_000_000, start=y0, end=y1),
+        _fact("PaymentsToAcquirePropertyPlantAndEquipment", 100_000_000, start=y0, end=y1),
+        _fact("DepreciationDepletionAndAmortization", 100_000_000, start=y0, end=y1),
+        _fact("CashAndCashEquivalentsAtCarryingValue", 500_000_000, start=None, end=y1),
+        _fact("LongTermDebtNoncurrent", 1_000_000_000, start=None, end=y1),
+        _fact(
+            "WeightedAverageNumberOfDilutedSharesOutstanding", 100_000_000,
+            start=y0, end=y1, unit="shares",
+        ),
+        # a quarter and a foreign-currency value must be ignored
+        _fact("Revenues", 9e9, start=date(2024, 10, 1), end=y1),
+        _fact("Revenues", 9e9, start=y0, end=y1, unit="EUR"),
+    ]  # fmt: skip
+    return [fact for fact in facts if fact.tag != without]
+
+
 @pytest.fixture
 def loaded(store: Store, watchlist: Watchlist) -> Store:
     """ACME with one fiscal year of facts, two price bars, and EUR/USD."""
     store.sync_companies(watchlist.companies)
-    y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
-    store.replace_facts(
-        "acme",
-        [
-            _fact("Revenues", 2_000_000_000, start=y0, end=y1),
-            _fact("OperatingIncomeLoss", 200_000_000, start=y0, end=y1),
-            _fact("NetIncomeLoss", 100_000_000, start=y0, end=y1),
-            _fact("NetCashProvidedByUsedInOperatingActivities", 500_000_000, start=y0, end=y1),
-            _fact("PaymentsToAcquirePropertyPlantAndEquipment", 100_000_000, start=y0, end=y1),
-            _fact("DepreciationDepletionAndAmortization", 100_000_000, start=y0, end=y1),
-            _fact("CashAndCashEquivalentsAtCarryingValue", 500_000_000, start=None, end=y1),
-            _fact("LongTermDebtNoncurrent", 1_000_000_000, start=None, end=y1),
-            _fact(
-                "WeightedAverageNumberOfDilutedSharesOutstanding", 100_000_000,
-                start=y0, end=y1, unit="shares",
-            ),
-            # a quarter and a foreign-currency value must be ignored
-            _fact("Revenues", 9e9, start=date(2024, 10, 1), end=y1),
-            _fact("Revenues", 9e9, start=y0, end=y1, unit="EUR"),
-        ],
-    )  # fmt: skip
+    store.replace_facts("acme", _acme_facts())
     store.upsert_prices([
         PriceBar(slug="acme", date=date(2026, 10, d), open=None, high=h, low=lo, close=c,
                  volume=None, ccy="USD", source="twelvedata")
@@ -89,6 +92,31 @@ def test_valuation(loaded: Store) -> None:
     assert pos == pytest.approx(50.0)  # 50 within 40..60
 
 
+def test_untagged_debt_counts_as_zero_once_cash_is_reported(loaded: Store) -> None:
+    loaded.replace_facts("acme", _acme_facts(without="LongTermDebtNoncurrent"))
+    net_debt, ev, reported = one(
+        loaded,
+        "SELECT net_debt, enterprise_value, debt_reported FROM valuation WHERE slug = 'acme'",
+    )
+    assert (net_debt, ev, reported) == (pytest.approx(-5e8), pytest.approx(4.5e9), False)
+
+
+def test_no_enterprise_value_without_a_balance_sheet(loaded: Store) -> None:
+    loaded.replace_facts("acme", _acme_facts(without="CashAndCashEquivalentsAtCarryingValue"))
+    assert one(loaded, "SELECT enterprise_value FROM valuation WHERE slug = 'acme'") == (None,)
+
+
+def test_gaps_list_missing_concepts_and_companies_without_financials(loaded: Store) -> None:
+    loaded.replace_facts("acme", _acme_facts(without="LongTermDebtNoncurrent"))
+    gaps = {row["slug"]: (row["period_end"], row["missing"]) for row in loaded.gaps()}
+    assert gaps["acme"] == (date(2024, 12, 31), "debt")
+    assert gaps["euro-co"][0] is None
+
+
+def test_complete_companies_have_no_gaps(loaded: Store) -> None:
+    assert "acme" not in {row["slug"] for row in loaded.gaps()}
+
+
 def test_valuation_converts_quote_to_reporting_currency(store: Store) -> None:
     company = make_company("eu", ccy="NOK", reporting_ccy="USD")
     store.sync_companies([company])
@@ -114,6 +142,24 @@ def test_valuation_converts_quote_to_reporting_currency(store: Store) -> None:
     price_rep, pe = one(store, "SELECT price_rep, pe_ttm FROM valuation WHERE slug = 'eu'")
     assert price_rep == pytest.approx(11.0)  # 110 NOK = 10 EUR = 11 USD
     assert pe == pytest.approx(11.0)
+
+
+def test_fin_annual_reads_esef_extension_tags_and_derives_shares_from_eps(store: Store) -> None:
+    store.sync_companies([make_company("eu", reporting_ccy="EUR", financials="esef")])
+    y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
+    capex = "PurchaseOfPropertyPlantAndEquipmentAndPurchaseOfIntangibleAssetsClassifiedAsInvestingActivities"  # noqa: E501
+
+    def esef(tag: str, value: float, taxonomy: str = "ifrs-full", unit: str = "EUR") -> Fact:
+        fact = _fact(tag, value, start=y0, end=y1)
+        return fact.model_copy(update={"slug": "eu", "taxonomy": taxonomy, "unit": unit})
+
+    store.replace_facts("eu", [
+        esef("Revenue", 1e9),
+        esef("ProfitLossAttributableToOwnersOfParent", 1e8),
+        esef("DilutedEarningsLossPerShare", 2.5, unit="EUR/shares"),
+        esef(capex, 4e7, taxonomy="eu"),
+    ])  # fmt: skip
+    assert one(store, "SELECT capex, shares_diluted FROM fin_annual") == (4e7, 4e7)
 
 
 def test_export(loaded: Store, tmp_path: Path) -> None:

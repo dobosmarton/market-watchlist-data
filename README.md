@@ -5,8 +5,8 @@ watchlist it collects daily prices, ECB exchange rates and annual reported finan
 sources, stores them in DuckDB, computes valuation ratios in SQL, and writes the two JSON files
 the dashboard reads.
 
-**Status: milestone 1.** It runs end to end from a CLI, but so far only against recorded test
-fixtures. See [Verify on the first live run](#verify-on-the-first-live-run).
+**Status: milestone 1.** It runs end to end from a CLI against the live sources. See
+[Data caveats](#data-caveats) for what the figures can and cannot tell you.
 
 ## How it works
 
@@ -88,6 +88,7 @@ on a Mac and on a VPS.
 |---|---|
 | `wl refresh [all\|fx\|prices\|financials]` | fetch data, then rebuild the marts |
 | `wl export` | write the dashboard JSON files |
+| `wl gaps` | concepts missing from each company's latest fiscal year |
 | `wl companies` | list companies with their identifiers and sources |
 | `wl resolve-ids` | look up missing LEIs on GLEIF for ESEF companies |
 | `wl unmapped <slug>` | the company's most frequent tags that `concepts.py` does not map yet |
@@ -179,19 +180,25 @@ Next up:
   provider, quarterly figures, and SQLMesh models in place of the SQL views.
 - **Milestones 3–4:** Dagster webserver and daemon for scheduling, and an MCP server.
 
-## Verify on the first live run
+## Data caveats
 
-The tests run against recorded fixtures because the build sandbox had no access to these
-APIs. On the first real run, check:
+The first live run confirmed the SEC and ESEF loaders, the LEI-based filings.xbrl.org filter
+and the price providers. What remains worth knowing:
 
 - **LEIs**: ESEF companies without an LEI are skipped until you paste in the output of
-  `just resolve-ids`.
-- **filings.xbrl.org filter**: `list_filings` uses `filter[entity.identifier]=<LEI>`. If it
-  returns other companies' filings or none, adjust the filter in `sources/esef.py`.
-- **IFRS tag coverage**: European companies tag debt and share counts in several ways. Check
-  `SELECT * FROM fin_annual` for gaps and extend `concepts.py`.
+  `just resolve-ids`. When GLEIF has no ISIN mapping, search GLEIF by the legal name.
+- **Gaps**: after a refresh, `just gaps` lists the concepts missing from each company's
+  latest year. `wl unmapped <slug>` shows candidate tags to add to `concepts.py`; tags under
+  a company's own prefix that many filers share can be mapped with `ANY_TAXONOMY`.
+- **Share counts**: most ESEF filers tag diluted EPS but not the share count, so
+  `fin_annual` derives it as net income / diluted EPS. Either way the count is the diluted
+  weighted average of the last annual report, so market caps are approximate after
+  buybacks or issuance.
+- **Debt**: companies without borrowings usually tag no debt at all. The valuation counts
+  missing debt as zero once cash is reported and exports `debt_reported` so the dashboard
+  can mark it; `just gaps` still lists it. Lease liabilities are not counted as debt.
+- **filings.xbrl.org lags**: it can take months after publication for an annual report to
+  appear there, so some companies' latest year trails the others.
 - **Ratios use the latest annual report**, not trailing twelve months, even though the
   dashboard column is called `pe_ttm`.
-- **Share counts** are diluted weighted averages from the last annual report, so market caps
-  are approximate after buybacks or issuance.
 - **DuckLake** needs its DuckDB extensions downloaded once (`INSTALL ducklake`).
