@@ -144,7 +144,7 @@ def test_valuation_converts_quote_to_reporting_currency(store: Store) -> None:
     assert pe == pytest.approx(11.0)
 
 
-def test_fin_annual_reads_esef_extension_tags_and_derives_shares_from_eps(store: Store) -> None:
+def test_fin_annual_derives_esef_shares_and_dna_and_reads_extension_tags(store: Store) -> None:
     store.sync_companies([make_company("eu", reporting_ccy="EUR", financials="esef")])
     y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
     capex = "PurchaseOfPropertyPlantAndEquipmentAndPurchaseOfIntangibleAssetsClassifiedAsInvestingActivities"  # noqa: E501
@@ -158,8 +158,11 @@ def test_fin_annual_reads_esef_extension_tags_and_derives_shares_from_eps(store:
         esef("ProfitLossAttributableToOwnersOfParent", 1e8),
         esef("DilutedEarningsLossPerShare", 2.5, unit="EUR/shares"),
         esef(capex, 4e7, taxonomy="eu"),
+        esef("DepreciationPropertyPlantAndEquipment", 3e7),
+        esef("DepreciationRightofuseAssets", 1e7),
+        esef("AmortisationExpense", 5e6),
     ])  # fmt: skip
-    assert one(store, "SELECT capex, shares_diluted FROM fin_annual") == (4e7, 4e7)
+    assert one(store, "SELECT capex, shares_diluted, dna FROM fin_annual") == (4e7, 4e7, 4.5e7)
 
 
 def test_export(loaded: Store, tmp_path: Path) -> None:

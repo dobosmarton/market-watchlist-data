@@ -24,6 +24,9 @@ class Concept(StrEnum):
     OPERATING_CASH_FLOW = "cfo"
     CAPEX = "capex"
     DEPRECIATION = "dna"
+    DEPRECIATION_PPE = "dep_ppe"
+    DEPRECIATION_ROU = "dep_rou"
+    AMORTISATION = "amort"
     CASH = "cash"
     DEBT_TOTAL = "debt_total"
     DEBT_NONCURRENT = "debt_noncurrent"
@@ -90,6 +93,13 @@ TAGS: dict[Concept, list[tuple[str, str]]] = {
             "ifrs-full",
             "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
         ),
+    ],
+    # Parts of D&A for filers that tag no total; fin_annual sums them only then.
+    Concept.DEPRECIATION_PPE: [("ifrs-full", "DepreciationPropertyPlantAndEquipment")],
+    Concept.DEPRECIATION_ROU: [("ifrs-full", "DepreciationRightofuseAssets")],
+    Concept.AMORTISATION: [
+        ("ifrs-full", "AmortisationExpense"),
+        ("ifrs-full", "AmortisationIntangibleAssetsOtherThanGoodwill"),
     ],
     Concept.CASH: [
         ("us-gaap", "CashAndCashEquivalentsAtCarryingValue"),

@@ -45,7 +45,10 @@ wide AS (
         max(CASE WHEN l.concept = 'net_income' THEN l.value END) AS net_income,
         max(CASE WHEN l.concept = 'cfo' THEN l.value END) AS cfo,
         max(CASE WHEN l.concept = 'capex' THEN l.value END) AS capex,
-        max(CASE WHEN l.concept = 'dna' THEN l.value END) AS dna,
+        max(CASE WHEN l.concept = 'dna' THEN l.value END) AS dna_reported,
+        max(CASE WHEN l.concept = 'dep_ppe' THEN l.value END) AS dep_ppe,
+        max(CASE WHEN l.concept = 'dep_rou' THEN l.value END) AS dep_rou,
+        max(CASE WHEN l.concept = 'amort' THEN l.value END) AS amort,
         max(CASE WHEN l.concept = 'cash' THEN l.value END) AS cash,
         max(CASE WHEN l.concept = 'debt_total' THEN l.value END) AS debt_total,
         max(CASE WHEN l.concept = 'debt_noncurrent' THEN l.value END) AS debt_noncurrent,
@@ -57,6 +60,13 @@ wide AS (
     FROM flows AS y
     LEFT JOIN fin_annual_long AS l ON l.slug = y.slug AND l.period_end = y.period_end
     GROUP BY ALL
+),
+summed AS (
+    -- some filers tag depreciation and amortisation only as separate lines
+    SELECT
+        * EXCLUDE (dna_reported, dep_ppe, dep_rou, amort),
+        coalesce(dna_reported, dep_ppe + coalesce(dep_rou, 0) + coalesce(amort, 0)) AS dna
+    FROM wide
 )
 SELECT
     w.* EXCLUDE (shares_reported),
@@ -67,5 +77,5 @@ SELECT
     w.op_income / nullif(w.revenue, 0) * 100 AS op_margin_pct,
     w.cfo - w.capex AS fcf,
     w.op_income + w.dna AS ebitda
-FROM wide AS w
+FROM summed AS w
 JOIN companies AS c USING (slug);
