@@ -131,7 +131,11 @@ class EuronextProvider:
 
 
 def parse_euronext_csv(company: Company, raw: bytes) -> list[PriceBar]:
-    """Parse the download: title lines, then ``Date;Open;High;Low;Last;Close;...`` rows."""
+    """Parse the download: title lines, then ``Date;Open;High;Low;Last;Close;...`` rows.
+
+    Exchange holidays come as rows with zero open, high and low and the last close carried
+    forward; they are not trading days, so they are dropped.
+    """
     lines = raw.decode("utf-8-sig").splitlines()
     header = next((i for i, line in enumerate(lines) if line.startswith("Date;")), None)
     if header is None:
@@ -142,16 +146,17 @@ def parse_euronext_csv(company: Company, raw: bytes) -> list[PriceBar]:
         PriceBar(
             slug=company.slug,
             date=datetime.strptime(row["Date"], "%d/%m/%Y").date(),  # noqa: DTZ007  (a calendar day)
-            open=_number(row["Open"]),
-            high=_number(row["High"]),
-            low=_number(row["Low"]),
+            open=_price(row["Open"]),
+            high=_price(row["High"]),
+            low=_price(row["Low"]),
             close=close,
             volume=_number(row["Number of Shares"]),
             ccy=company.listing.ccy,
             source=EuronextProvider.name,
         )
         for row in rows
-        if (close := _number(row["Close"])) is not None
+        if (close := _price(row["Close"])) is not None
+        and any(_price(row[column]) for column in ("Open", "High", "Low"))
     ]
 
 
@@ -161,6 +166,12 @@ def _number(text: str | None) -> float | None:
         return float(text or "")
     except ValueError:
         return None
+
+
+def _price(text: str | None) -> float | None:
+    """Return a price, or None where Euronext writes 0 for no trade."""
+    value = _number(text)
+    return value or None
 
 
 # ---------------------------------------------------------------- Yahoo, unofficial

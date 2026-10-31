@@ -199,6 +199,7 @@ def test_euronext(client: httpx.Client) -> None:
     assert route.calls.last.request.url.params["startdate"] == "2026-10-01"
     assert (bars[0].date, bars[0].close, bars[0].volume) == (date(2026, 10, 30), 1412.8, 818682)
     assert {(b.ccy, b.source) for b in bars} == {("EUR", "euronext")}
+    assert [b.date for b in bars][-1] == date(2026, 10, 28)  # the 25th was a holiday row
     assert len(bars) == 3
 
 
