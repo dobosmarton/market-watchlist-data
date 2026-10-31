@@ -12,3 +12,4 @@ exports/
 .env
 .DS_Store
 watchlist.yaml
+financials/

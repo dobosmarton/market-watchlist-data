@@ -1,0 +1,34 @@
+# Hand-entered annual figures for a company with `financials: manual` in watchlist.yaml.
+# Copy to financials/<slug>.yaml (gitignored) and fill it from the consolidated statements:
+#   mkdir -p financials && cp financials.example/sap.yaml financials/<slug>.yaml
+#
+# currency     must equal the company's reporting_ccy
+# money_unit   units | thousands | millions, for every amount below
+# shares_unit  units | thousands | millions, for shares_diluted
+#
+# Per year: period_end (its month must match fiscal_year_end_month), source_url, and the
+# figures. revenue and net_income are required; leave out what the report does not give.
+#   net_income      profit attributable to owners of the parent
+#   capex           purchases of property, plant and equipment (and intangibles, if combined)
+#   dna             depreciation and amortisation from the cash flow statement
+#   debt_total      borrowings, excluding lease liabilities (or debt_noncurrent + debt_current)
+#   shares_diluted  diluted weighted average number of shares
+#   eps_diluted     diluted EPS in currency units (not scaled)
+#
+# Example: SAP SE, fiscal 2025, as filed in its annual report on Form 20-F.
+currency: EUR
+money_unit: millions
+shares_unit: millions
+years:
+  - period_end: 2025-12-31
+    source_url: https://www.sec.gov/Archives/edgar/data/1000184/000110465926020058/
+    revenue: 36800
+    op_income: 9617
+    net_income: 7161
+    cfo: 9156
+    capex: 739
+    dna: 1311
+    cash: 8220
+    debt_total: 6150
+    shares_diluted: 1175
+    eps_diluted: 6.10

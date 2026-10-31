@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data")
     export_dir: Path = Path("exports")
     watchlist_path: Path = Path("watchlist.yaml")
+    manual_dir: Path = Path("financials")
     storage: Literal["duckdb", "ducklake"] = "duckdb"
 
     sec_user_agent: str = Field(

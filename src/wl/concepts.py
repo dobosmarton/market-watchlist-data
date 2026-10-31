@@ -15,6 +15,8 @@ from typing import Literal
 type Kind = Literal["flow", "instant"]
 
 ANY_TAXONOMY = "*"
+# Figures typed in from annual reports (sources/manual.py): tag = concept name, lowest priority.
+MANUAL_TAXONOMY = "manual"
 
 
 class Concept(StrEnum):
@@ -143,5 +145,5 @@ def concept_rows() -> list[tuple[str, str, str, int, str]]:
     return [
         (concept.value, taxonomy, tag, priority, kind(concept))
         for concept, tags in TAGS.items()
-        for priority, (taxonomy, tag) in enumerate(tags)
+        for priority, (taxonomy, tag) in enumerate([*tags, (MANUAL_TAXONOMY, concept.value)])
     ]

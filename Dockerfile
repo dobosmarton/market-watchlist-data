@@ -10,7 +10,8 @@ COPY README.md ./
 COPY src ./src
 RUN uv sync --locked --no-dev --all-extras
 
-# The watchlist is not baked in: mount yours at /app/watchlist.yaml (compose.yaml does).
+# The watchlist and hand-entered figures are not baked in: mount them at /app/watchlist.yaml
+# and /app/financials (compose.yaml does).
 
 ENV WL_DATA_DIR=/data WL_EXPORT_DIR=/exports
 VOLUME ["/data", "/exports"]

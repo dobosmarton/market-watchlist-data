@@ -165,6 +165,21 @@ def test_fin_annual_derives_esef_shares_and_dna_and_reads_extension_tags(store: 
     assert one(store, "SELECT capex, shares_diluted, dna FROM fin_annual") == (4e7, 4e7, 4.5e7)
 
 
+def test_manual_figures_fill_gaps_but_never_override_xbrl(loaded: Store) -> None:
+    y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
+
+    def manual(concept: str, value: float, start: date | None) -> Fact:
+        fact = _fact(concept, value, start=start, end=y1)
+        return fact.model_copy(update={"taxonomy": "manual", "source": "manual"})
+
+    loaded.replace_facts("acme", [
+        *_acme_facts(without="LongTermDebtNoncurrent"),
+        manual("revenue", 1.0, y0),
+        manual("debt_total", 7e8, None),
+    ])  # fmt: skip
+    assert one(loaded, "SELECT revenue, debt FROM fin_annual") == (2e9, 7e8)
+
+
 def test_export(loaded: Store, tmp_path: Path) -> None:
     written = write_exports(loaded, tmp_path)
     assert written == {"valuation": 2, "financials": 1}
@@ -282,7 +297,7 @@ def test_prices_without_twelvedata_key_are_skipped(store: Store, settings: Setti
     assert report.skipped == {"c0": "no twelvedata provider configured"}
 
 
-def test_financials_skip_manual_companies_and_missing_identifiers(
+def test_financials_skip_companies_without_a_file_or_identifier(
     store: Store, settings: Settings
 ) -> None:
     watchlist = Watchlist(
@@ -295,7 +310,7 @@ def test_financials_skip_manual_companies_and_missing_identifiers(
     with httpx.Client() as client:
         report = build_jobs(store, client, settings)[Job.FINANCIALS].run(watchlist)
     assert report.skipped == {
-        "m": "no manual provider configured",
+        "m": f"no {settings.manual_dir / 'm.yaml'} (see financials.example/)",
         "s": "no cik in watchlist.yaml",
         "e": "no lei in watchlist.yaml (run `wl resolve-ids`)",
     }

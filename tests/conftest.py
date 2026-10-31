@@ -57,6 +57,7 @@ def settings(tmp_path: Path) -> Settings:
     return Settings(
         data_dir=tmp_path / "data",
         export_dir=tmp_path / "exports",
+        manual_dir=tmp_path / "financials",
         sec_user_agent="wl-tests test@example.com",
         twelvedata_api_key=SecretStr("test-key"),
         _env_file=None,  # pyright: ignore[reportCallIssue]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
@@ -10,9 +11,11 @@ import respx
 from hypothesis import given
 from hypothesis import strategies as st
 
+from wl.config import load_watchlist
 from wl.models import DateRange
 from wl.sources import esef, fx, gleif, sec
 from wl.sources.base import MissingIdentifierError, ProviderError
+from wl.sources.manual import ManualProvider
 from wl.sources.prices import TwelveDataProvider
 
 from .conftest import fixture_bytes, make_company
@@ -122,6 +125,62 @@ def test_esef_fetch(client: httpx.Client, watchlist: Watchlist) -> None:
 def test_esef_without_lei_is_a_missing_identifier(client: httpx.Client) -> None:
     with pytest.raises(MissingIdentifierError, match="lei"):
         esef.EsefProvider(client).fetch(make_company(financials="esef"))
+
+
+# ---------------------------------------------------------------- manual
+ROOT = Path(__file__).parent.parent
+ACME_YEAR = """
+currency: USD
+money_unit: millions
+shares_unit: millions
+years:
+  - period_end: 2024-12-31
+    source_url: https://example.com/acme-2024.pdf
+    revenue: 2000
+    net_income: 100
+    cash: 500
+    shares_diluted: 100
+    eps_diluted: 1.0
+"""
+
+
+def _manual(tmp_path: Path, text: str) -> ManualProvider:
+    (tmp_path / "acme.yaml").write_text(text)
+    return ManualProvider(tmp_path)
+
+
+def test_manual_figures_become_scaled_facts(tmp_path: Path) -> None:
+    facts = {f.tag: f for f in _manual(tmp_path, ACME_YEAR).fetch(make_company())}
+    assert facts["revenue"].value == 2e9
+    assert (facts["revenue"].period_start, facts["revenue"].unit) == (date(2024, 1, 1), "USD")
+    assert (facts["cash"].period_start, facts["shares_diluted"].unit) == (None, "shares")
+    assert (facts["eps_diluted"].value, facts["eps_diluted"].unit) == (1.0, "USD/shares")
+    assert {f.taxonomy for f in facts.values()} == {"manual"}
+
+
+def test_manual_without_a_file_is_a_missing_identifier(tmp_path: Path) -> None:
+    with pytest.raises(MissingIdentifierError, match=r"acme\.yaml"):
+        ManualProvider(tmp_path).fetch(make_company())
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (("currency: USD", "currency: EUR"), "reporting_ccy"),
+        (("2024-12-31", "2024-06-30"), "fiscal_year_end_month"),
+        (("cash: 500", "cash_flow: 500"), "cash_flow"),
+        (("    revenue: 2000\n", ""), "revenue"),
+    ],
+)
+def test_manual_rejects_bad_files(tmp_path: Path, change: tuple[str, str], message: str) -> None:
+    with pytest.raises(ProviderError, match=message):
+        _manual(tmp_path, ACME_YEAR.replace(*change)).fetch(make_company())
+
+
+def test_example_manual_file_matches_the_example_watchlist() -> None:
+    sap = load_watchlist(ROOT / "watchlist.example.yaml").get("sap")
+    facts = ManualProvider(ROOT / "financials.example").fetch(sap)
+    assert next(f.value for f in facts if f.tag == "revenue") == 36.8e9
 
 
 # ---------------------------------------------------------------- prices

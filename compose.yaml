@@ -6,6 +6,7 @@ services:
     env_file: .env
     volumes:
       - ./watchlist.yaml:/app/watchlist.yaml:ro
+      - ./financials:/app/financials:ro
       - ./data:/data
       - ./exports:/exports
   export:

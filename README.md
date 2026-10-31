@@ -52,6 +52,14 @@ Each entry gives the company's identifiers (ISIN, plus a CIK for SEC filers or a
 filers), its listing and currencies, and which source to use for prices and for financials.
 Adding a company is one entry. The comments at the top of the example explain each field.
 
+Companies whose filings no XBRL source covers (German issuers, for example) use
+`financials: manual`. Type their annual figures into `financials/<slug>.yaml`, also gitignored,
+starting from the example; `wl refresh` validates the file against the watchlist entry:
+
+```sh
+mkdir -p financials && cp financials.example/sap.yaml financials/<slug>.yaml
+```
+
 ## Outputs
 
 **`exports/valuation.json`**, one row per company: latest price and date, 52-week low, high and
@@ -116,10 +124,12 @@ Settings come from environment variables or `.env`, all prefixed `WL_`:
 | ESEF financials | ESEF filings via filings.xbrl.org | EU/EEA issuers that file in ESEF | none |
 | US prices | Twelve Data `time_series` | US listings | free API key (8 req/min, 800/day) |
 | European prices | Yahoo via yfinance (`yahoo` extra) | any exchange Yahoo covers | none; unofficial, personal use |
+| Manual financials | `financials/<slug>.yaml`, typed in from the annual report | any company | none |
 | LEI lookup | GLEIF | all | none |
 
 Some countries' filings are not on filings.xbrl.org (Germany, for example). Mark those companies
-`financials: manual`; annual-report extraction for them comes in milestone 2.
+`financials: manual` and enter their figures by hand (see [Your watchlist](#your-watchlist)).
+An XBRL figure always wins over a manual one for the same year.
 
 ## Layout
 
