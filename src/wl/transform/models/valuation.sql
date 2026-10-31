@@ -3,27 +3,25 @@ MODEL (
     kind VIEW
 );
 
--- Valuation on the latest annual figures. Market cap uses diluted weighted shares from the
--- last annual report, converted to the reporting currency with ECB rates (EUR cross).
+-- Valuation on trailing-twelve-month figures where 10-Qs allow it, else the latest fiscal year
+-- (marts.fin_ttm, see its basis column). Market cap uses the latest diluted weighted shares,
+-- with the price converted to the reporting currency with ECB rates (EUR cross).
 -- Companies without borrowings usually tag no debt at all, so missing debt counts as zero once
 -- cash is reported; debt_reported keeps that visible. Without cash there is no net debt or EV.
-WITH last_year AS (
-    SELECT * FROM marts.fin_annual
-    QUALIFY row_number() OVER (PARTITION BY slug ORDER BY period_end DESC) = 1
-),
-priced AS (
+WITH priced AS (
     SELECT
         c.slug, c.name, c.grp, c.quote_ccy, c.reporting_ccy,
         s.price, s.price_date, s.wk52_low, s.wk52_high,
         -- price converted from quote to reporting currency: price * EUR->rep / EUR->quote
         s.price * fr.eur_rate / fq.eur_rate AS price_rep,
-        y.period_end AS fin_period_end, y.revenue, y.op_income, y.net_income, y.fcf, y.ebitda,
+        y.basis, y.period_end AS fin_period_end,
+        y.revenue, y.op_income, y.net_income, y.fcf, y.ebitda,
         y.cash, y.debt, y.shares_diluted, y.op_margin_pct,
         y.debt IS NOT NULL AS debt_reported,
         coalesce(y.debt, 0) - y.cash AS net_debt
     FROM main.companies AS c
     LEFT JOIN marts.price_stats AS s USING (slug)
-    LEFT JOIN last_year AS y USING (slug)
+    LEFT JOIN marts.fin_ttm AS y USING (slug)
     LEFT JOIN marts.fx_latest AS fq ON fq.quote = c.quote_ccy
     LEFT JOIN marts.fx_latest AS fr ON fr.quote = c.reporting_ccy
 )

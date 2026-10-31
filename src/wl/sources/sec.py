@@ -20,8 +20,9 @@ if TYPE_CHECKING:
 
 URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 SOURCE = "sec"
-# Annual filing forms whose facts we keep: domestic, foreign private issuer, Canadian MJDS.
-ANNUAL_FORMS = frozenset({"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"})
+# Filing forms whose facts we keep: annual reports (domestic, foreign private issuer, Canadian
+# MJDS) and the quarterly 10-Q that marts.fin_ttm builds trailing twelve months from.
+FORMS = frozenset({"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A", "10-Q", "10-Q/A"})
 TAXONOMIES = frozenset({"us-gaap", "ifrs-full", "dei"})
 
 
@@ -61,7 +62,7 @@ class SecProvider:
 
 
 def parse_company_facts(company: Company, raw: bytes, source_url: str) -> list[Fact]:
-    """Keep facts from annual filings only; quarterly data comes from releases (milestone 2)."""
+    """Keep facts from annual reports and 10-Qs in the taxonomies the concept map uses."""
     payload = _CompanyFacts.model_validate_json(raw)
     return [
         Fact(
@@ -80,11 +81,11 @@ def parse_company_facts(company: Company, raw: bytes, source_url: str) -> list[F
             source=SOURCE,
             source_url=source_url,
         )
-        for taxonomy, tag, unit, obs in _annual_observations(payload)
+        for taxonomy, tag, unit, obs in _observations(payload)
     ]
 
 
-def _annual_observations(payload: _CompanyFacts) -> Iterator[tuple[str, str, str, _Observation]]:
+def _observations(payload: _CompanyFacts) -> Iterator[tuple[str, str, str, _Observation]]:
     return (
         (taxonomy, tag, unit, obs)
         for taxonomy, concepts in payload.facts.items()
@@ -92,5 +93,5 @@ def _annual_observations(payload: _CompanyFacts) -> Iterator[tuple[str, str, str
         for tag, concept in concepts.items()
         for unit, observations in concept.units.items()
         for obs in observations
-        if obs.form in ANNUAL_FORMS
+        if obs.form in FORMS
     )

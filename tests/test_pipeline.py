@@ -180,6 +180,62 @@ def test_manual_figures_fill_gaps_but_never_override_xbrl(loaded: Store) -> None
     assert one(loaded, "SELECT revenue, debt FROM fin_annual") == (2e9, 7e8)
 
 
+# ---------------------------------------------------------------- trailing twelve months
+def _quarterly(tag: str, value: float, *, start: date | None, end: date, unit: str = "USD") -> Fact:
+    fact = _fact(tag, value, start=start, end=end, unit=unit)
+    return fact.model_copy(update={"form": "10-Q", "filed": date(2025, 8, 1)})
+
+
+H1_2025, H1_2024 = (date(2025, 1, 1), date(2025, 6, 30)), (date(2024, 1, 1), date(2024, 6, 30))
+
+
+def _half_year(*, without_prior: str | None = None) -> list[Fact]:
+    """ACME's 2025 half-year 10-Q: year to date, last year's comparatives, the balance sheet."""
+    facts = [
+        _quarterly("Revenues", 1.2e9, start=H1_2025[0], end=H1_2025[1]),
+        _quarterly("Revenues", 0.9e9, start=H1_2024[0], end=H1_2024[1]),
+        _quarterly("NetIncomeLoss", 8e7, start=H1_2025[0], end=H1_2025[1]),
+        _quarterly("NetIncomeLoss", 4e7, start=H1_2024[0], end=H1_2024[1]),
+        _quarterly("CashAndCashEquivalentsAtCarryingValue", 6e8, start=None, end=H1_2025[1]),
+        _quarterly(
+            "WeightedAverageNumberOfDilutedSharesOutstanding", 1.1e8,
+            start=date(2025, 4, 1), end=H1_2025[1], unit="shares",
+        ),
+        # the prior year-end balance sheet repeated in the 10-Q must not replace the 10-K's
+        _quarterly(
+            "CashAndCashEquivalentsAtCarryingValue", 9e8, start=None, end=date(2024, 12, 31)
+        ),
+    ]  # fmt: skip
+    return [f for f in facts if not (f.tag == without_prior and f.period_end == H1_2024[1])]
+
+
+def test_ttm_adds_this_year_to_date_and_drops_last_years(loaded: Store) -> None:
+    loaded.replace_facts("acme", [*_acme_facts(), *_half_year()])
+    row = one(
+        loaded,
+        "SELECT basis, period_end, revenue, net_income, op_income, cash, debt, shares_diluted "
+        "FROM fin_ttm WHERE slug = 'acme'",
+    )
+    # revenue 2.0 + 1.2 - 0.9; op income has no quarterly figure and keeps the annual value
+    assert row == ("ttm", H1_2025[1], 2.3e9, 1.4e8, 2e8, 6e8, 1e9, 1.1e8)
+    assert one(loaded, "SELECT cash FROM fin_annual") == (5e8,)
+
+
+def test_ttm_keeps_the_annual_value_without_last_years_comparative(loaded: Store) -> None:
+    loaded.replace_facts("acme", [*_acme_facts(), *_half_year(without_prior="Revenues")])
+    basis, period_end, revenue, net_income = one(
+        loaded, "SELECT basis, period_end, revenue, net_income FROM fin_ttm WHERE slug = 'acme'"
+    )
+    assert (basis, period_end, revenue, net_income) == ("annual", date(2024, 12, 31), 2e9, 1.4e8)
+
+
+def test_companies_without_quarterlies_are_valued_on_the_annual_report(loaded: Store) -> None:
+    basis, period_end = one(
+        loaded, "SELECT basis, fin_period_end FROM valuation WHERE slug = 'acme'"
+    )
+    assert (basis, period_end) == ("annual", date(2024, 12, 31))
+
+
 def test_export(loaded: Store, tmp_path: Path) -> None:
     written = write_exports(loaded, tmp_path)
     assert written == {"valuation": 2, "financials": 1}

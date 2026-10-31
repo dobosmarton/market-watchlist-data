@@ -34,7 +34,7 @@ def valuation_rows(store: Store) -> list[Row]:
                wk52_low, wk52_high, wk52_pos,
                market_cap_quote / 1e9 AS mcap_bn, pe_ttm, ev_ebitda,
                fcf_yield_pct AS fcf_yield, net_debt_ebitda AS nd_ebitda, debt_reported,
-               op_margin_pct, fin_period_end
+               op_margin_pct, basis, fin_period_end
         FROM marts.valuation ORDER BY slug
         """
     )

@@ -4,6 +4,7 @@ MODEL (
 );
 
 -- Each company's mapped concepts per period, in the reporting currency: the best tag wins.
+-- Annual reports only: 10-Qs repeat the prior year-end balance sheet, which must not outrank it.
 -- Flow concepts must cover roughly a year (330-400 days); instants sit on the fiscal year end.
 -- A concept_map taxonomy of '*' matches the tag under any prefix (ESEF extension taxonomies).
 WITH candidates AS (
@@ -19,6 +20,7 @@ WITH candidates AS (
          OR (m.kind = 'instant' AND f.period_start IS NULL)
         )
       AND f.unit IN (c.reporting_ccy, 'shares', c.reporting_ccy || '/shares')
+      AND coalesce(f.form, '') NOT LIKE '10-Q%'
 ),
 ranked AS (
     SELECT *,

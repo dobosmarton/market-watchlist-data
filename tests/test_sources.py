@@ -45,12 +45,11 @@ def test_fx_nothing_to_fetch(client: httpx.Client) -> None:
 
 
 # ---------------------------------------------------------------- SEC
-def test_sec_keeps_annual_forms_and_known_taxonomies() -> None:
+def test_sec_keeps_annual_and_quarterly_forms_and_known_taxonomies() -> None:
     facts = sec.parse_company_facts(make_company(), fixture_bytes("sec_companyfacts.json"), "u")
-    forms = {f.form for f in facts}
-    assert forms == {"10-K"}
+    assert {f.form for f in facts} == {"10-K", "10-Q"}  # the 8-K is dropped
     revenue = [f for f in facts if f.tag == "Revenues"]
-    assert [f.value for f in revenue] == [1296745000, 1669626000]
+    assert [f.value for f in revenue] == [1296745000, 1669626000, 430081000]
     cash = next(f for f in facts if f.tag == "CashAndCashEquivalentsAtCarryingValue")
     assert cash.period_start is None
     assert {f.taxonomy for f in facts} == {"us-gaap", "dei"}
