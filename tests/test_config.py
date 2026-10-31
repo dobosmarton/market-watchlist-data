@@ -19,7 +19,7 @@ def test_example_watchlist_loads() -> None:
 def test_example_watchlist_shows_every_source() -> None:
     companies = load_watchlist(EXAMPLE_WATCHLIST).companies
     used = {c.sources.prices for c in companies} | {c.sources.financials for c in companies}
-    assert used == {"twelvedata", "yahoo", "sec", "esef", "manual"}
+    assert used == {"twelvedata", "yahoo", "euronext", "sec", "esef", "manual"}
 
 
 def test_every_example_sec_company_has_a_cik() -> None:
@@ -33,6 +33,11 @@ def test_esef_company_without_lei_needs_one() -> None:
 
 def test_sec_company_needs_no_lei() -> None:
     assert not make_company(financials="sec", lei=None).needs_lei
+
+
+def test_euronext_prices_need_a_euronext_listing() -> None:
+    with pytest.raises(ValidationError, match="needs a Euronext listing"):
+        make_company(prices="euronext", mic="XNYS")
 
 
 def test_unknown_slug_raises() -> None:

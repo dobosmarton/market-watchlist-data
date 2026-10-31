@@ -9,7 +9,7 @@
 #   cik    SEC identifier for companies that file with the SEC (10-K, 20-F, 40-F)
 #
 # Sources
-#   prices:     twelvedata | yahoo        (euronext download provider: milestone 2)
+#   prices:     twelvedata | yahoo | euronext   (euronext: Euronext markets only, needs isin)
 #   financials: sec | esef | manual       (manual = annual report extraction, milestone 2)
 #
 # fiscal_year_end_month defaults to 12; set it for companies whose fiscal year ends elsewhere.
@@ -36,14 +36,14 @@ companies:
     reporting_ccy: USD
     sources: { prices: twelvedata, financials: sec }
 
-  # EU listings: Yahoo prices, ESEF financials (run `wl resolve-ids` to fill in the LEIs)
+  # EU listings: Euronext or Yahoo prices, ESEF financials (`wl resolve-ids` fills in LEIs)
   - slug: asml
     name: ASML
     group: Technology
     isin: NL0010273215
     listing: { mic: XAMS, ticker: ASML, ccy: EUR, yahoo: ASML.AS }
     reporting_ccy: EUR
-    sources: { prices: yahoo, financials: esef }
+    sources: { prices: euronext, financials: esef }
 
   - slug: novo-b
     name: Novo Nordisk B

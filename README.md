@@ -124,6 +124,7 @@ Settings come from environment variables or `.env`, all prefixed `WL_`:
 | ESEF financials | ESEF filings via filings.xbrl.org | EU/EEA issuers that file in ESEF | none |
 | US prices | Twelve Data `time_series` | US listings | free API key (8 req/min, 800/day) |
 | European prices | Yahoo via yfinance (`yahoo` extra) | any exchange Yahoo covers | none; unofficial, personal use |
+| Euronext prices | live.euronext.com price history download | Amsterdam, Brussels, Dublin, Lisbon, Milan, Oslo, Paris (needs the ISIN) | none |
 | Manual financials | `financials/<slug>.yaml`, typed in from the annual report | any company | none |
 | LEI lookup | GLEIF | all | none |
 

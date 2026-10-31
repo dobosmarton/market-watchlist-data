@@ -5,13 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-type PriceSource = Literal["twelvedata", "yahoo"]
+type PriceSource = Literal["twelvedata", "yahoo", "euronext"]
 type FinancialsSource = Literal["sec", "esef", "manual"]
+
+# Markets whose prices the Euronext download covers.
+EURONEXT_MICS = frozenset({"XAMS", "XBRU", "XDUB", "XLIS", "XMSM", "XMIL", "XOSL", "XPAR"})
 
 
 class _Frozen(BaseModel):
@@ -41,6 +44,13 @@ class Company(_Frozen):
     listing: Listing
     reporting_ccy: str = Field(pattern=r"^[A-Z]{3}$")
     sources: Sources
+
+    @model_validator(mode="after")
+    def _euronext_needs_a_euronext_listing(self) -> Company:
+        if self.sources.prices == "euronext" and self.listing.mic not in EURONEXT_MICS:
+            msg = f"{self.slug}: prices: euronext needs a Euronext listing, not {self.listing.mic}"
+            raise ValueError(msg)
+        return self
 
     @property
     def needs_lei(self) -> bool:

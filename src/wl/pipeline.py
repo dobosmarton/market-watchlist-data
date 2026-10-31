@@ -18,7 +18,7 @@ from wl.sources import fx
 from wl.sources.base import MissingIdentifierError, ProviderError
 from wl.sources.esef import EsefProvider
 from wl.sources.manual import ManualProvider
-from wl.sources.prices import TwelveDataProvider, YahooProvider
+from wl.sources.prices import EuronextProvider, TwelveDataProvider, YahooProvider
 from wl.sources.sec import SecProvider
 
 if TYPE_CHECKING:
@@ -144,7 +144,10 @@ def build_jobs(store: Store, client: httpx.Client, settings: Settings) -> dict[J
 def _price_providers(
     client: httpx.Client, settings: Settings, window: DateRange
 ) -> dict[str, Provider[PriceBar]]:
-    providers: dict[str, Provider[PriceBar]] = {"yahoo": YahooProvider(window)}
+    providers: dict[str, Provider[PriceBar]] = {
+        "yahoo": YahooProvider(window),
+        "euronext": EuronextProvider(client, window),
+    }
     if settings.twelvedata_api_key is not None:
         api_key = settings.twelvedata_api_key.get_secret_value()
         providers["twelvedata"] = TwelveDataProvider(client, api_key, window)

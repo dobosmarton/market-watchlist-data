@@ -16,12 +16,12 @@ from wl.models import DateRange
 from wl.sources import esef, fx, gleif, sec
 from wl.sources.base import MissingIdentifierError, ProviderError
 from wl.sources.manual import ManualProvider
-from wl.sources.prices import TwelveDataProvider
+from wl.sources.prices import EuronextProvider, TwelveDataProvider
 
 from .conftest import fixture_bytes, make_company
 
 if TYPE_CHECKING:
-    from wl.config import Watchlist
+    from wl.config import Company, Watchlist
 
 OCTOBER = DateRange(date(2026, 10, 1), date(2026, 10, 27))
 
@@ -184,6 +184,41 @@ def test_example_manual_file_matches_the_example_watchlist() -> None:
 
 
 # ---------------------------------------------------------------- prices
+def _euro_listed(isin: str | None = "NL0000000018") -> Company:
+    return make_company(isin=isin, mic="XAMS", ccy="EUR", prices="euronext")
+
+
+EURONEXT_URL = "https://live.euronext.com/en/ajax/AwlHistoricalPrice/getFullDownloadAjax/"
+
+
+@respx.mock
+def test_euronext(client: httpx.Client) -> None:
+    route = respx.get(f"{EURONEXT_URL}NL0000000018-XAMS").mock(
+        return_value=httpx.Response(200, content=fixture_bytes("euronext_history.csv"))
+    )
+    bars = EuronextProvider(client, OCTOBER).fetch(_euro_listed())
+    assert route.calls.last.request.url.params["startdate"] == "2026-10-01"
+    assert (bars[0].date, bars[0].close, bars[0].volume) == (date(2026, 10, 30), 1412.8, 818682)
+    assert {(b.ccy, b.source) for b in bars} == {("EUR", "euronext")}
+    assert len(bars) == 3
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [(b'"Historical Data"\nDate;Open;High;Low;Last;Close\n', "no prices"), (b"<html>", "Date")],
+)
+def test_euronext_without_rows_is_an_error(client: httpx.Client, body: bytes, message: str) -> None:
+    respx.get(url__startswith=EURONEXT_URL).mock(return_value=httpx.Response(200, content=body))
+    with pytest.raises(ProviderError, match=message):
+        EuronextProvider(client, OCTOBER).fetch(_euro_listed())
+
+
+def test_euronext_without_isin_is_a_missing_identifier(client: httpx.Client) -> None:
+    with pytest.raises(MissingIdentifierError):
+        EuronextProvider(client, OCTOBER).fetch(_euro_listed(isin=None))
+
+
 @respx.mock
 def test_twelvedata(client: httpx.Client) -> None:
     route = respx.get(TwelveDataProvider.url).mock(

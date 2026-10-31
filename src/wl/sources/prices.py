@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import csv
 import time
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from wl.http import get_bytes
 from wl.models import PriceBar
-from wl.sources.base import ProviderError
+from wl.sources.base import MissingIdentifierError, ProviderError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -94,6 +95,72 @@ class TwelveDataProvider:
             "apikey": self._api_key,
         }
         return _TdSeries.model_validate_json(get_bytes(self._client, self.url, params))
+
+
+# ---------------------------------------------------------------- Euronext markets
+class EuronextProvider:
+    """The CSV download behind live.euronext.com's price history; no key, Euronext MICs only."""
+
+    name = "euronext"
+    url = "https://live.euronext.com/en/ajax/AwlHistoricalPrice/getFullDownloadAjax/{isin}-{mic}"
+
+    def __init__(self, client: httpx.Client, window: DateRange) -> None:
+        self._client = client
+        self._window = window
+
+    def fetch(self, company: Company) -> list[PriceBar]:
+        if company.isin is None:
+            msg = "no isin in watchlist.yaml"
+            raise MissingIdentifierError(msg)
+        params = {
+            "format": "csv",
+            "decimal_separator": ".",
+            "date_form": "d/m/Y",
+            "op": "",
+            "adjusted": "N",
+            "base100": "",
+            "startdate": self._window.start.isoformat(),
+            "enddate": self._window.end.isoformat(),
+        }
+        url = self.url.format(isin=company.isin, mic=company.listing.mic)
+        bars = parse_euronext_csv(company, get_bytes(self._client, url, params))
+        if not bars:
+            msg = f"Euronext has no prices for {company.isin} on {company.listing.mic}"
+            raise ProviderError(msg)
+        return bars
+
+
+def parse_euronext_csv(company: Company, raw: bytes) -> list[PriceBar]:
+    """Parse the download: title lines, then ``Date;Open;High;Low;Last;Close;...`` rows."""
+    lines = raw.decode("utf-8-sig").splitlines()
+    header = next((i for i, line in enumerate(lines) if line.startswith("Date;")), None)
+    if header is None:
+        msg = "Euronext CSV has no Date header; the download format changed"
+        raise ProviderError(msg)
+    rows = csv.DictReader(lines[header:], delimiter=";")
+    return [
+        PriceBar(
+            slug=company.slug,
+            date=datetime.strptime(row["Date"], "%d/%m/%Y").date(),  # noqa: DTZ007  (a calendar day)
+            open=_number(row["Open"]),
+            high=_number(row["High"]),
+            low=_number(row["Low"]),
+            close=close,
+            volume=_number(row["Number of Shares"]),
+            ccy=company.listing.ccy,
+            source=EuronextProvider.name,
+        )
+        for row in rows
+        if (close := _number(row["Close"])) is not None
+    ]
+
+
+def _number(text: str | None) -> float | None:
+    """Return the value, or None for the dashes and blanks Euronext uses for no trade."""
+    try:
+        return float(text or "")
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------- Yahoo, unofficial

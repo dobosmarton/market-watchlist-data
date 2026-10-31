@@ -37,6 +37,8 @@ def make_company(  # noqa: PLR0913
     financials: str = "sec",
     cik: int | None = 1234567,
     lei: str | None = None,
+    isin: str | None = None,
+    mic: str = "XNYS",
 ) -> Company:
     return Company.model_validate(
         {
@@ -45,7 +47,8 @@ def make_company(  # noqa: PLR0913
             "group": "Test",
             "cik": cik,
             "lei": lei,
-            "listing": Listing(mic="XNYS", ticker=slug.upper(), ccy=ccy, yahoo=slug.upper()),
+            "isin": isin,
+            "listing": Listing(mic=mic, ticker=slug.upper(), ccy=ccy, yahoo=slug.upper()),
             "reporting_ccy": reporting_ccy,
             "sources": Sources.model_validate({"prices": prices, "financials": financials}),
         }
