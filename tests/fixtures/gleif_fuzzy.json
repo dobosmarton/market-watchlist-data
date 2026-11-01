@@ -1,0 +1,44 @@
+{
+ "data": [
+  {
+   "type": "fuzzycompletions",
+   "attributes": {
+    "value": "SAP SE"
+   },
+   "relationships": {
+    "lei-records": {
+     "data": {
+      "type": "lei-records",
+      "id": "529900D6BF99LW9R2E68"
+     },
+     "links": {
+      "related": "https://api.gleif.org/api/v1/lei-records/529900D6BF99LW9R2E68"
+     }
+    }
+   }
+  },
+  {
+   "type": "fuzzycompletions",
+   "attributes": {
+    "value": "SAP SRL"
+   }
+  },
+  {
+   "type": "fuzzycompletions",
+   "attributes": {
+    "value": "SAP SE"
+   },
+   "relationships": {
+    "lei-records": {
+     "data": {
+      "type": "lei-records",
+      "id": "529900D6BF99LW9R2E68"
+     },
+     "links": {
+      "related": "https://api.gleif.org/api/v1/lei-records/529900D6BF99LW9R2E68"
+     }
+    }
+   }
+  }
+ ]
+}

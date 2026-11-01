@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import httpx
 
+from wl.config import Watchlist
 from wl.http import make_client
 from wl.log import get_logger
 from wl.marts import build_marts
@@ -25,9 +26,9 @@ from wl.sources.sec import SecProvider
 from wl.store import Store
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Collection, Mapping, Sequence
 
-    from wl.config import Company, Watchlist
+    from wl.config import Company
     from wl.models import FxRate
     from wl.settings import Settings
     from wl.sources.base import Provider
@@ -110,22 +111,49 @@ class CompanyJob[T]:
             report.skipped[company.slug] = str(exc)
             return
         except (ProviderError, httpx.HTTPError) as exc:
-            report.failed[company.slug] = str(exc)
-            log.warning("refresh.failed", job=self.job, slug=company.slug, error=str(exc))
+            report.failed[company.slug] = describe_error(exc)
+            log.warning(
+                "refresh.failed", job=self.job, slug=company.slug, error=describe_error(exc)
+            )
             return
         report.rows += self.write(company, records)
         report.ok.append(company.slug)
 
 
+def describe_error(exc: Exception) -> str:
+    """Say what failed without the request's query string, which can hold credentials.
+
+    Only HTTP status errors quote the URL; transport errors describe the connection.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        url = exc.request.url.copy_with(query=None)
+        return f"HTTP {exc.response.status_code} from {url}"
+    return str(exc)
+
+
 def run_refresh(
-    settings: Settings, watchlist: Watchlist, job: Job | None = None
+    settings: Settings,
+    watchlist: Watchlist,
+    job: Job | None = None,
+    *,
+    slugs: Collection[str] | None = None,
 ) -> list[RunReport]:
-    """Run one job, or all of them, then rebuild the marts once the store is closed."""
+    """Run one job, or all of them, then rebuild the marts once the store is closed.
+
+    With ``slugs``, prices and financials are fetched for those companies only; FX still
+    covers every currency on the watchlist.
+    """
+    chosen = watchlist
+    if slugs is not None:
+        chosen = Watchlist(companies=tuple(c for c in watchlist.companies if c.slug in slugs))
     with Store.open(settings) as store, make_client(settings) as client:
         store.sync_companies(watchlist.companies)
         jobs = build_jobs(store, client, settings)
-        selected = list(jobs.values()) if job is None else [jobs[job]]
-        reports = [selected_job.run(watchlist) for selected_job in selected]
+        selected = jobs.items() if job is None else [(job, jobs[job])]
+        reports = [
+            selected_job.run(watchlist if name is Job.FX else chosen)
+            for name, selected_job in selected
+        ]
     build_marts(settings)
     return reports
 

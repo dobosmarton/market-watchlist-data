@@ -92,9 +92,11 @@ class TwelveDataProvider:
             "start_date": self._window.start.isoformat(),
             "end_date": self._window.end.isoformat(),
             "order": "asc",
-            "apikey": self._api_key,
         }
-        return _TdSeries.model_validate_json(get_bytes(self._client, self.url, params))
+        # the key goes in a header: URLs end up in error messages, logs and MCP replies
+        headers = {"Authorization": f"apikey {self._api_key}"}
+        raw = get_bytes(self._client, self.url, params, headers=headers)
+        return _TdSeries.model_validate_json(raw)
 
 
 # ---------------------------------------------------------------- Euronext markets

@@ -7,11 +7,13 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
+from wl import pipeline
 from wl.config import Watchlist
 from wl.export import write_exports
 from wl.models import Fact, FxRate, PriceBar
-from wl.pipeline import CompanyJob, FxJob, Job, build_jobs
+from wl.pipeline import CompanyJob, FxJob, Job, RunReport, build_jobs
 from wl.sources.base import MissingIdentifierError, ProviderError
+from wl.store import Store
 
 from .conftest import acme_facts, make_company, one, us_fact
 
@@ -22,7 +24,6 @@ if TYPE_CHECKING:
     from wl.config import Company
     from wl.settings import Settings
     from wl.sources.base import Provider
-    from wl.store import Store
 
 
 def test_fin_annual(loaded: Store) -> None:
@@ -324,3 +325,56 @@ def test_financials_skip_companies_without_a_file_or_identifier(
         "s": "no cik in watchlist.yaml",
         "e": "no lei in watchlist.yaml (run `wl resolve-ids`)",
     }
+
+
+def _no_rebuild(_settings: Settings) -> None:
+    pass
+
+
+class _Recorder:
+    def __init__(self, job: Job, seen: dict[Job, list[str]]) -> None:
+        self._job, self._seen = job, seen
+
+    def run(self, watchlist: Watchlist) -> RunReport:
+        self._seen[self._job] = [c.slug for c in watchlist.companies]
+        return RunReport(self._job)
+
+
+def test_refresh_for_some_companies_still_covers_every_currency(
+    settings: Settings, watchlist: Watchlist, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[Job, list[str]] = {}
+    jobs = {job: _Recorder(job, seen) for job in Job}
+
+    def recording_jobs(*_args: object) -> dict[Job, _Recorder]:
+        return jobs
+
+    monkeypatch.setattr(pipeline, "build_jobs", recording_jobs)
+    monkeypatch.setattr(pipeline, "build_marts", _no_rebuild)
+    reports = pipeline.run_refresh(settings, watchlist, slugs=["euro-co"])
+    assert [r.job for r in reports] == [Job.FX, Job.PRICES, Job.FINANCIALS]
+    assert seen == {
+        Job.FX: ["acme", "euro-co"],
+        Job.PRICES: ["euro-co"],
+        Job.FINANCIALS: ["euro-co"],
+    }
+    with Store.open(settings, read_only=True) as store:
+        assert len(store.query("SELECT * FROM companies")) == 2  # the whole list is synced
+
+
+@pytest.mark.parametrize(
+    ("error", "described"),
+    [
+        (
+            httpx.HTTPStatusError(
+                "404", request=httpx.Request("GET", "https://x.test/series?apikey=secret"),
+                response=httpx.Response(404),
+            ),
+            "HTTP 404 from https://x.test/series",
+        ),
+        (httpx.ConnectError("connection refused"), "connection refused"),
+        (ProviderError("no data"), "no data"),
+    ],
+)  # fmt: skip
+def test_failures_are_described_without_the_query_string(error: Exception, described: str) -> None:
+    assert pipeline.describe_error(error) == described

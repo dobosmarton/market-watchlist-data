@@ -36,7 +36,13 @@ def make_client(
     wait=wait_exponential(multiplier=0.5, max=8),
     reraise=True,
 )
-def get_bytes(client: httpx.Client, url: str, params: dict[str, str] | None = None) -> bytes:
-    response = client.get(url, params=params)
+def get_bytes(
+    client: httpx.Client,
+    url: str,
+    params: dict[str, str] | None = None,
+    *,
+    headers: dict[str, str] | None = None,
+) -> bytes:
+    response = client.get(url, params=params, headers=headers)
     response.raise_for_status()
     return response.content

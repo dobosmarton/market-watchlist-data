@@ -1,0 +1,40 @@
+{
+ "fields": [
+  "cik",
+  "name",
+  "ticker",
+  "exchange"
+ ],
+ "data": [
+  [
+   320193,
+   "Apple Inc.",
+   "AAPL",
+   "Nasdaq"
+  ],
+  [
+   789019,
+   "MICROSOFT CORP",
+   "MSFT",
+   "Nasdaq"
+  ],
+  [
+   1000184,
+   "SAP SE",
+   "SAP",
+   "NYSE"
+  ],
+  [
+   1418121,
+   "Apple Hospitality REIT, Inc.",
+   "APLE",
+   "NYSE"
+  ],
+  [
+   9999999,
+   "Example Holdings Inc.",
+   "EXMP",
+   null
+  ]
+ ]
+}

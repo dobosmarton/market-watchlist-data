@@ -1,8 +1,8 @@
-"""MCP server: Claude reads the watchlist marts, and refreshes them when asked.
+"""MCP server: Claude reads the watchlist marts, changes the watchlist, and refreshes on request.
 
-The tools are plain functions over a ``Store``. ``build_server`` wraps each one so that every
-call opens its own read-only connection and closes it again, which leaves the database file
-free for ``wl refresh`` in another process.
+The read tools are plain functions over a ``Store``. ``build_server`` wraps each one so that
+every call opens its own read-only connection and closes it again, which leaves the database
+file free for ``wl refresh`` in another process. Watchlist changes go through ``wl.live``.
 """
 
 from __future__ import annotations
@@ -11,14 +11,19 @@ import threading
 from typing import TYPE_CHECKING
 
 import duckdb
+import httpx
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from wl.config import load_watchlist
+from wl import live
+from wl.config import Company, load_watchlist
 from wl.export import clean, valuation_rows
+from wl.http import make_client
 from wl.pipeline import Job, run_refresh
+from wl.sources import gleif, sec
 from wl.store import Store
+from wl.watchlist_file import WatchlistEditError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -53,15 +58,24 @@ TABLES = {
 
 _INSTRUCTIONS = """\
 A personal stock watchlist: prices, ECB FX rates, and figures from annual reports (SEC, ESEF
-or hand-entered) for a fixed list of companies, identified by slug.
+or hand-entered) for a list of companies, identified by slug.
 Start with `companies` or `valuation`. `financials` gives one company's history in millions
 of its reporting currency. For anything else, call `describe` and then `query` with DuckDB SQL.
+To add a company, find its identifiers with `lookup_company`, then call `add_company`;
+`update_company` and `remove_company` change the list. Change the list only when asked.
 Data is as fresh as the last refresh: check price_date and fin_period_end before calling it
 current. Call `refresh` only when the user asks for fresh data."""
 
 _READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 _REFRESH = ToolAnnotations(
     read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True
+)
+_LOOKUP = ToolAnnotations(read_only_hint=True, open_world_hint=True)
+_EDIT = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True
+)
+_REMOVE = ToolAnnotations(
+    read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False
 )
 
 
@@ -81,12 +95,28 @@ def describe_tables(store: Store) -> dict[str, Row]:
     return described
 
 
-def list_companies(store: Store, group: str | None) -> list[Row]:
-    rows = store.query(
-        'SELECT slug, name, grp AS "group", quote_ccy, reporting_ccy, fiscal_year_end_month '
-        "FROM companies ORDER BY slug"
-    )
-    return [row for row in rows if group is None or row["group"] == group]
+def list_companies(settings: Settings, group: str | None) -> list[Row]:
+    """List the watchlist entries as they stand in ``watchlist.yaml``."""
+    if not settings.watchlist_path.exists():
+        msg = f"{settings.watchlist_path} not found; start from watchlist.example.yaml"
+        raise ToolError(msg)
+    companies = load_watchlist(settings.watchlist_path).companies
+    return [c.model_dump(exclude_none=True) for c in companies if group in (None, c.group)]
+
+
+def lookup(settings: Settings, query: str) -> Row:
+    """Candidates from the SEC ticker list and GLEIF for filling in a watchlist entry."""
+    try:
+        with make_client(settings) as client:
+            sec_matches = sec.search_tickers(client, query)
+            lei_matches = gleif.search_entities(client, query)
+    except httpx.HTTPError as exc:
+        msg = f"lookup failed: {exc}"
+        raise ToolError(msg) from exc
+    return {
+        "sec": [match.model_dump() for match in sec_matches],
+        "gleif": [match.model_dump() for match in lei_matches],
+    }
 
 
 def valuation_of(store: Store, slugs: list[str] | None) -> list[Row]:
@@ -175,12 +205,12 @@ def _cleaned(row: Row) -> Row:
 
 
 # ---------------------------------------------------------------------- server
-def build_server(settings: Settings) -> MCPServer:  # noqa: C901  (one small wrapper per tool)
+def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a small wrapper per tool)
     # MCP reads the return annotations: a spelled-out dict comes back as the structured result
     # itself, anything else (lists, aliases) wrapped as {"result": ...}
     server = MCPServer("watchlist", instructions=_INSTRUCTIONS)
     # tools run on worker threads; DuckDB allows one configuration per file and process
-    lock = threading.Lock()
+    lock = threading.RLock()  # re-entrant: a change reads its result back under the lock
 
     def read[T](tool: Callable[[Store], T]) -> T:
         with lock:
@@ -202,10 +232,67 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901  (one small wra
         """List the tables and views `query` can read, with grain, units and column types."""
         return read(describe_tables)
 
+    def change[T](apply: Callable[[], T]) -> T:
+        with lock:
+            try:
+                return apply()
+            except (live.ChangeRefusedError, WatchlistEditError) as exc:
+                raise ToolError(str(exc)) from exc
+
+    def changed(slug: str, result: live.Change) -> dict[str, object]:
+        (row,) = read(lambda store: valuation_of(store, [slug]))
+        return {"slug": slug, "report": result.report, "hints": result.hints, "valuation": row}
+
     @server.tool(annotations=_READ)
     def companies(group: str | None = None) -> list[dict[str, object]]:
-        """List the watchlist companies (slug, name, group, currencies), optionally one group."""
-        return read(lambda store: list_companies(store, group))
+        """List the watchlist entries (identifiers, listing, sources), optionally one group."""
+        with lock:
+            return list_companies(settings, group)
+
+    @server.tool(annotations=_LOOKUP)
+    def lookup_company(query: str) -> dict[str, object]:
+        """Search the SEC ticker list (by ticker or name) and GLEIF (by legal name).
+
+        Use it to fill in a new entry: SEC gives cik, ticker and fiscal_year_end_month; GLEIF
+        gives the LEI, country and ISINs (bonds included: pick the share ISIN, usually the one
+        with the company's country prefix). Choose prices: twelvedata for US listings, euronext
+        for Euronext markets (mic XAMS, XBRU, XDUB, XLIS, XMSM, XMIL, XOSL, XPAR), else yahoo.
+        Choose financials: sec with a cik, esef for EU/EEA filers with an LEI, manual for
+        companies on neither (German issuers, for example). Ask the user when unsure.
+        """
+        return lookup(settings, query)
+
+    @server.tool(annotations=_EDIT)
+    def add_company(company: Company, force: bool = False) -> dict[str, object]:  # noqa: FBT001, FBT002
+        """Add a company to the watchlist, fetch its prices and financials, and publish.
+
+        Takes a minute or so. If its prices cannot be fetched the add is undone and the reason
+        returned (usually a wrong ticker, yahoo symbol or isin); force=true keeps it anyway.
+        Returns the refresh report, hints for anything still missing, and its valuation row.
+        """
+        return changed(
+            company.slug, change(lambda: live.add_company(settings, company, force=force))
+        )
+
+    @server.tool(annotations=_EDIT)
+    def update_company(company: Company, force: bool = False) -> dict[str, object]:  # noqa: FBT001, FBT002
+        """Replace the entry with the same slug (e.g. add an LEI, switch the price source).
+
+        Fetches the company's data again; the change is undone if its prices fail.
+        Get the current entry from `companies` first and change only what needs changing.
+        """
+        return changed(
+            company.slug, change(lambda: live.update_company(settings, company, force=force))
+        )
+
+    @server.tool(annotations=_REMOVE)
+    def remove_company(slug: str) -> dict[str, object]:
+        """Take a company off the watchlist and drop its stored prices and financials.
+
+        Only call it when the user asks. watchlist.yaml.bak keeps the previous list.
+        """
+        change(lambda: live.remove_company(settings, slug))
+        return {"removed": slug}
 
     @server.tool(annotations=_READ)
     def valuation(slugs: list[str] | None = None) -> list[dict[str, object]]:

@@ -1,0 +1,20 @@
+{
+ "data": {
+  "type": "lei-records",
+  "id": "529900D6BF99LW9R2E68",
+  "attributes": {
+   "lei": "529900D6BF99LW9R2E68",
+   "entity": {
+    "legalName": {
+     "name": "SAP SE",
+     "language": "de"
+    },
+    "legalAddress": {
+     "country": "DE",
+     "city": "Walldorf"
+    },
+    "status": "ACTIVE"
+   }
+  }
+ }
+}

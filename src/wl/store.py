@@ -109,6 +109,12 @@ class Store:
             self._con.execute("DELETE FROM raw_facts WHERE slug = ?", [slug])
             return self._write("INSERT INTO raw_facts", facts)
 
+    def delete_company(self, slug: str) -> None:
+        """Drop a company's prices and facts (it left the watchlist, or its add was undone)."""
+        with self._transaction():
+            self._con.execute("DELETE FROM raw_prices WHERE slug = ?", [slug])
+            self._con.execute("DELETE FROM raw_facts WHERE slug = ?", [slug])
+
     def _write(self, insert_into: str, records: Sequence[BaseModel]) -> int:
         """Insert records into a raw table whose columns are the record fields + fetched_at."""
         if not records:

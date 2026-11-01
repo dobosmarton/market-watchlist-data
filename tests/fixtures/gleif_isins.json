@@ -1,0 +1,28 @@
+{
+ "data": [
+  {
+   "type": "isins",
+   "id": "76423879-deb2-43c8-b112-09e41cec7121",
+   "attributes": {
+    "lei": "529900D6BF99LW9R2E68",
+    "isin": "DE000A2TSTF5"
+   }
+  },
+  {
+   "type": "isins",
+   "id": "569ddb3f-eabc-49a7-94a2-5eb7e35c6e8f",
+   "attributes": {
+    "lei": "529900D6BF99LW9R2E68",
+    "isin": "DE0007164600"
+   }
+  },
+  {
+   "type": "isins",
+   "id": "b7c0c363-f239-4645-8601-d3ca725e01fd",
+   "attributes": {
+    "lei": "529900D6BF99LW9R2E68",
+    "isin": "US8030542042"
+   }
+  }
+ ]
+}

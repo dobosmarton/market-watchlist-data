@@ -44,13 +44,6 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture
-def served(loaded: Store, settings: Settings) -> Settings:
-    """Close the loaded store so the server can open it read-only."""
-    loaded.__exit__(None, None, None)
-    return settings
-
-
 def rows(value: object) -> list[dict[str, object]]:
     """Narrow a tool result field to its list of rows."""
     assert isinstance(value, list)
@@ -74,10 +67,19 @@ def test_describe_lists_every_table_with_its_columns(loaded: Store) -> None:
     assert columns["pe_ttm"] == "DOUBLE"
 
 
-def test_companies_filter_by_group(loaded: Store) -> None:
-    assert [c["slug"] for c in list_companies(loaded, None)] == ["acme", "euro-co"]
-    assert list_companies(loaded, "Test")[0]["reporting_ccy"] == "USD"
-    assert list_companies(loaded, "Other") == []
+def test_companies_are_the_watchlist_file_entries(settings: Settings) -> None:
+    settings.watchlist_path = EXAMPLE_WATCHLIST
+    entries = list_companies(settings, None)
+    assert [c["slug"] for c in entries][:2] == ["aapl", "msft"]
+    assert entries[0]["listing"] == {"mic": "XNGS", "ticker": "AAPL", "ccy": "USD", "yahoo": "AAPL"}
+    assert "lei" not in entries[0]  # unset identifiers are left out
+    assert [c["slug"] for c in list_companies(settings, "Healthcare")] == ["novo-b"]
+
+
+def test_companies_need_a_watchlist_file(settings: Settings) -> None:
+    settings.watchlist_path = settings.data_dir / "missing.yaml"
+    with pytest.raises(ToolError, match=r"missing\.yaml not found"):
+        list_companies(settings, None)
 
 
 def test_valuation_filters_slugs_and_rejects_unknown_ones(loaded: Store) -> None:
@@ -143,7 +145,7 @@ async def test_server_lists_the_tools_and_answers_from_the_marts(served: Setting
         tools = {tool.name for tool in (await client.list_tools()).tools}
         assert tools == {
             "describe", "companies", "valuation", "financials", "prices", "gaps", "query",
-            "refresh",
+            "refresh", "lookup_company", "add_company", "update_company", "remove_company",
         }  # fmt: skip
         result = await client.call_tool("financials", {"slug": "acme"})
         assert result.structured_content is not None
@@ -170,7 +172,7 @@ async def test_server_reports_tool_errors(served: Settings) -> None:
 @pytest.mark.anyio
 async def test_server_without_data_says_to_refresh(settings: Settings) -> None:
     async with Client(build_server(settings)) as client:
-        result = await client.call_tool("companies", {})
+        result = await client.call_tool("valuation", {})
         assert "no data yet: run `just refresh`" in error_text(result)
 
 
@@ -197,7 +199,7 @@ def test_server_reports_a_database_locked_by_another_process(served: Settings) -
         try:
             assert writer.stdout is not None
             assert writer.stdout.readline().strip() == "ready"
-            result = anyio.run(call_tool, build_server(served), "companies")
+            result = anyio.run(call_tool, build_server(served), "gaps")
             assert "database busy" in error_text(result)
         finally:
             writer.kill()

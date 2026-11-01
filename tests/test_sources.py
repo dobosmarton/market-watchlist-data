@@ -225,7 +225,10 @@ def test_twelvedata(client: httpx.Client) -> None:
         return_value=httpx.Response(200, content=fixture_bytes("twelvedata_series.json"))
     )
     bars = TwelveDataProvider(client, "k", OCTOBER, sleep=lambda _: None).fetch(make_company())
-    assert route.calls.last.request.url.params["symbol"] == "ACME"
+    request = route.calls.last.request
+    assert request.url.params["symbol"] == "ACME"
+    assert "apikey" not in request.url.params
+    assert request.headers["Authorization"] == "apikey k"
     assert [b.close for b in bars] == [204.5, 208.0]
     assert bars[0].ccy == "USD"
 
@@ -282,3 +285,49 @@ def test_client_errors_are_not_retried(client: httpx.Client) -> None:
     with pytest.raises(httpx.HTTPStatusError):
         gleif.lei_for_isin(client, "NL0000000018")
     assert route.call_count == 1
+
+
+# ---------------------------------------------------------------------- company lookup
+@respx.mock
+def test_sec_search_puts_the_exact_ticker_first(client: httpx.Client) -> None:
+    respx.get(sec.TICKERS_URL).mock(
+        return_value=httpx.Response(200, content=fixture_bytes("sec_company_tickers.json"))
+    )
+    submissions = respx.get(url__startswith="https://data.sec.gov/submissions/").mock(
+        return_value=httpx.Response(200, content=fixture_bytes("sec_submissions.json"))
+    )
+    matches = sec.search_tickers(client, "aapl", detailed=1)
+    assert [(m.ticker, m.cik, m.fiscal_year_end_month) for m in matches] == [("AAPL", 320193, 9)]
+    by_name = sec.search_tickers(client, "apple", detailed=0)
+    assert [m.ticker for m in by_name] == ["AAPL", "APLE"]
+    assert submissions.call_count == 1
+    assert submissions.calls.last.request.url.path == "/submissions/CIK0000320193.json"
+
+
+@respx.mock
+def test_sec_search_keeps_registrants_without_an_exchange(client: httpx.Client) -> None:
+    respx.get(sec.TICKERS_URL).mock(
+        return_value=httpx.Response(200, content=fixture_bytes("sec_company_tickers.json"))
+    )
+    (match,) = sec.search_tickers(client, "example holdings", detailed=0)
+    assert (match.ticker, match.exchange) == ("EXMP", None)
+
+
+@respx.mock
+def test_gleif_search_returns_each_entity_once_with_its_isins(client: httpx.Client) -> None:
+    respx.get(gleif.FUZZY_URL).mock(
+        return_value=httpx.Response(200, content=fixture_bytes("gleif_fuzzy.json"))
+    )
+    lei = "529900D6BF99LW9R2E68"
+    respx.get(f"{gleif.URL}/{lei}").mock(
+        return_value=httpx.Response(200, content=fixture_bytes("gleif_record.json"))
+    )
+    isins = respx.get(f"{gleif.URL}/{lei}/isins").mock(
+        return_value=httpx.Response(200, content=fixture_bytes("gleif_isins.json"))
+    )
+    (match,) = gleif.search_entities(client, "SAP SE")
+    assert (match.lei, match.legal_name, match.country, match.status) == (
+        lei, "SAP SE", "DE", "ACTIVE",
+    )  # fmt: skip
+    assert "DE0007164600" in match.isins
+    assert isins.calls.last.request.url.params["page[size]"] == str(gleif.MAX_ISINS)

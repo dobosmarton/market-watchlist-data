@@ -72,6 +72,7 @@ def settings(tmp_path: Path) -> Settings:
         data_dir=tmp_path / "data",
         export_dir=tmp_path / "exports",
         manual_dir=tmp_path / "financials",
+        watchlist_path=tmp_path / "watchlist.yaml",  # never the real list
         sec_user_agent="wl-tests test@example.com",
         twelvedata_api_key=SecretStr("test-key"),
         _env_file=None,  # pyright: ignore[reportCallIssue]
@@ -164,3 +165,10 @@ def loaded(store: Store, watchlist: Watchlist) -> Store:
         [FxRate(date=date(2026, 10, 27), base="EUR", quote="USD", rate=1.1, source="t")]
     )
     return store
+
+
+@pytest.fixture
+def served(loaded: Store, settings: Settings) -> Settings:
+    """Close the loaded store so the MCP server and live changes can open it themselves."""
+    loaded.__exit__(None, None, None)
+    return settings

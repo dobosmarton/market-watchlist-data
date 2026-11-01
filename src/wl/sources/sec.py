@@ -95,3 +95,51 @@ def _observations(payload: _CompanyFacts) -> Iterator[tuple[str, str, str, _Obse
         for obs in observations
         if obs.form in FORMS
     )
+
+
+# ---------------------------------------------------------------------- company lookup
+TICKERS_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
+SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
+
+
+class SecMatch(BaseModel):
+    """An SEC registrant that matches a lookup, for filling in a watchlist entry."""
+
+    cik: int
+    name: str
+    ticker: str | None
+    exchange: str | None
+    fiscal_year_end_month: int | None = None
+
+
+class _Tickers(BaseModel):
+    data: list[tuple[int, str, str | None, str | None]]  # cik, name, ticker, exchange
+
+
+class _Submissions(BaseModel):
+    fiscal_year_end: str | None = Field(default=None, alias="fiscalYearEnd")  # e.g. "0926"
+
+
+def search_tickers(
+    client: httpx.Client, query: str, limit: int = 10, detailed: int = 3
+) -> list[SecMatch]:
+    """Exact ticker matches first, then names containing the query.
+
+    The first ``detailed`` matches also get their fiscal year-end month (one request each).
+    """
+    rows = _Tickers.model_validate_json(get_bytes(client, TICKERS_URL)).data
+    wanted = query.strip().upper()
+    exact = [row for row in rows if (row[2] or "").upper() == wanted]
+    named = [row for row in rows if wanted in row[1].upper() and row not in exact]
+    matches = [SecMatch(cik=c, name=n, ticker=t, exchange=e) for c, n, t, e in exact + named]
+    return [
+        _with_year_end(client, match) if i < detailed else match
+        for i, match in enumerate(matches[:limit])
+    ]
+
+
+def _with_year_end(client: httpx.Client, match: SecMatch) -> SecMatch:
+    raw = get_bytes(client, SUBMISSIONS_URL.format(cik=match.cik))
+    year_end = _Submissions.model_validate_json(raw).fiscal_year_end
+    month = int(year_end[:2]) if year_end else None
+    return match.model_copy(update={"fiscal_year_end_month": month})

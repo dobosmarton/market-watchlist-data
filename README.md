@@ -57,6 +57,8 @@ cp watchlist.example.yaml watchlist.yaml
 Each entry gives the company's identifiers (ISIN, plus a CIK for SEC filers or an LEI for ESEF
 filers), its listing and currencies, and which source to use for prices and for financials.
 Adding a company is one entry. The comments at the top of the example explain each field.
+You can also ask Claude to add, change or remove companies; see
+[Ask Claude about your watchlist](#ask-claude-about-your-watchlist).
 
 Companies whose filings no XBRL source covers (German issuers, for example) use
 `financials: manual`. Type their annual figures into `financials/<slug>.yaml`, also gitignored,
@@ -85,7 +87,7 @@ like "which companies have net cash and trade below 10× EV/EBITDA?".
 
 | Tool | What it returns |
 |---|---|
-| `companies` | the watchlist, optionally one group |
+| `companies` | the watchlist entries from `watchlist.yaml`, optionally one group |
 | `valuation` | price, 52-week range, market cap and ratios, as in `valuation.json` |
 | `financials` | one company's annual figures in millions of its reporting currency, plus the TTM figures `valuation` uses |
 | `prices` | daily closes and volumes for the last N days |
@@ -93,10 +95,23 @@ like "which companies have net cash and trade below 10× EV/EBITDA?".
 | `describe` | the tables and views, their grain, units and columns |
 | `query` | one read-only DuckDB `SELECT`, at most 500 rows |
 | `refresh` | runs `wl refresh` (all or one job) and returns its report |
+| `lookup_company` | searches the SEC ticker list and GLEIF for a company's CIK, LEI, ISINs and fiscal year end |
+| `add_company` | adds an entry, fetches its data and publishes it (see below) |
+| `update_company` | replaces an entry, for example to add an LEI or switch the price source |
+| `remove_company` | removes an entry and its stored prices and financials |
+
+**The list is live.** Ask "add NVIDIA to my watchlist" and Claude looks up the identifiers,
+then calls `add_company`. That writes the entry into `watchlist.yaml` after the last company in
+its group, fetches its prices and financials (plus FX for a new currency), rebuilds the marts
+and rewrites `exports/`, so the company shows up in `valuation` and in the dashboard JSON within
+a minute or two. If its prices cannot be fetched, usually a wrong ticker or ISIN, the add is
+undone and Claude gets the reason. Edits keep your comments and layout, and the previous version
+is saved as `watchlist.yaml.bak`. A `financials: manual` company still needs its
+`financials/<slug>.yaml`; the result says so.
 
 Every read opens its own read-only connection and closes it again, so `just refresh` in a
 terminal still works while Claude is connected. `query` runs on a connection that cannot write
-or open files. `refresh` is the only tool that changes data; Claude Code asks before running it.
+or open files. Only `refresh` and the four list tools change anything; Claude Code asks before running them.
 
 For Claude Desktop, add this to `claude_desktop_config.json` (Settings → Developer → Edit
 Config). `--directory` makes the repo the working directory, so `.env`, `data/` and
@@ -196,7 +211,9 @@ src/wl/
   marts.py              builds the marts with SQLMesh
   pipeline.py           refresh jobs and their wiring; one company failing never stops the rest
   export.py             dashboard JSON
-  mcp_server.py         MCP tools over the marts (read-only, plus refresh)
+  mcp_server.py         MCP tools: read the marts, look up and change the list, refresh
+  live.py               list changes that fetch, publish, and roll back on failure
+  watchlist_file.py     edits watchlist.yaml in place, keeping its comments and layout
   cli.py                `wl` command
 tests/                  offline tests with recorded fixtures
 ```
@@ -233,8 +250,8 @@ changing the data:
   views, and a CLI to run from cron or launchd.
 - **Milestone 2 (done):** hand-entered figures for `manual` companies, a Euronext price
   provider, trailing twelve months from 10-Qs, and SQLMesh models in place of the SQL views.
-- **Milestone 4 (done):** an MCP server (`wl mcp`) so Claude can read the marts and run a
-  refresh.
+- **Milestone 4 (done):** an MCP server (`wl mcp`) so Claude can read the marts, keep the
+  watchlist up to date, and run a refresh.
 - **Next:** milestone 3, Dagster webserver and daemon for scheduling, and making DuckLake
   storage work (the raw tables' primary keys and upserts need replacing).
 

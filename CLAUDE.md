@@ -10,6 +10,8 @@
 - Marts are SQLMesh view models in `src/wl/transform/models/`; the raw tables they read are
   declared in `external_models.yaml` (a test checks it against `store.py`).
 - MCP tools live in `src/wl/mcp_server.py` as plain functions over a `Store`; the server opens a
-  read-only store per call. Only the `refresh` tool writes.
+  read-only store per call. Only `refresh` and the list tools (`wl.live`) write.
+- `watchlist.yaml` is written only by `wl.watchlist_file`, which edits entry blocks as text and
+  checks the result against the intended list; tests point `watchlist_path` at a tmp file.
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.
 - Do not commit `.env`, `data/` or `exports/`.
