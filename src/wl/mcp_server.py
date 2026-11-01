@@ -75,8 +75,9 @@ To add a company, find its identifiers with `lookup_company`, then call `add_com
 `update_company` and `remove_company` change the list. Change the list only when asked.
 Data is as fresh as the last refresh: check price_date and fin_period_end before calling it
 current. Call `refresh` only when the user asks for fresh data.
-`prices`, `financials` and `valuation` draw charts in hosts that show apps; for any other chart,
-call `chart` with a SELECT and a Vega-Lite spec."""
+Charts: `prices` draws a company's price chart, `financials` its revenue, margin and earnings,
+`valuation` a ratio comparison across companies (in hosts that show apps, such as Claude
+Desktop). Use them whenever they fit; `chart` is only for charts none of them draws."""
 
 _READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 _REFRESH = ToolAnnotations(
@@ -273,6 +274,9 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
     def valuation(slugs: list[str] | None = None) -> list[dict[str, object]]:
         """Price, 52-week range, market cap (bn, quote currency) and valuation ratios.
 
+        Also draws them: a sortable table and one ratio as bars across the companies. Use it to
+        compare or chart valuations.
+
         Ratios use trailing twelve months where basis is 'ttm', else the last annual report
         (fin_period_end). nd_ebitda below zero means net cash; debt_reported false means no
         borrowings were tagged and debt counts as zero.
@@ -283,24 +287,33 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
     def financials(slug: str, years: int = 10) -> dict[str, object]:
         """One company's annual figures, oldest first, in millions of its reporting currency.
 
+        Also draws them: revenue bars with the operating margin, and net income against FCF,
+        with a TTM bar. Use it to chart a company's revenue, margins or earnings.
+
         `latest` holds the trailing-twelve-month figures (or the latest year) used by
         `valuation`. source_url links each year's filing.
         """
         return read(lambda store: financials_of(store, slug, years))
 
     @apps.tool(resource_uri=view_uri("prices"), annotations=_READ)
-    def prices(slug: str, days: int = 90) -> dict[str, object]:
-        """Daily closes and volumes for the last `days` calendar days, in the quote currency."""
+    def prices(slug: str, days: int = 365) -> dict[str, object]:
+        """Daily closes and volumes for the last `days` calendar days, in the quote currency.
+
+        Also draws them as a price chart with 1M/3M/1Y range buttons. Use it to chart or show
+        a company's price; the default year covers the range buttons (history is ~400 days).
+        """
         days = max(1, min(days, settings.price_history_days))
         return read(lambda store: price_history(store, slug, days))
 
     @apps.tool(resource_uri=view_uri("chart"), annotations=_READ)
     def chart(sql: str, spec: dict[str, object], title: str | None = None) -> dict[str, object]:
-        """Draw any chart: run one SELECT (as in `query`) and plot its rows with a Vega-Lite spec.
+        """Draw a custom chart: run one SELECT (as in `query`) and plot it with a Vega-Lite spec.
 
+        Not for a company's price (use `prices`), its revenue, margins or earnings (use
+        `financials`), or one ratio across companies (use `valuation`): those draw their own
+        charts. Use it for anything else, such as a scatter of two ratios.
         `spec` is a Vega-Lite v6 spec without data: the query's rows become its data, so use
-        the query's column names as fields. Prefer `prices`, `financials` and `valuation` when
-        they show what is asked. Money in the marts is in full units of each company's
+        the query's column names as fields. Money in the marts is in full units of each company's
         reporting currency, so compare ratios across companies, not amounts. Ratios have
         outliers (negative or very high P/E): filter them in the SQL so the rest stays readable.
         """

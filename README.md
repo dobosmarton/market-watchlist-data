@@ -96,7 +96,7 @@ like "which companies have net cash and trade below 10× EV/EBITDA?".
 | `companies` | the watchlist entries from `watchlist.yaml`, optionally one group |
 | `valuation` | price, 52-week range, market cap and ratios, as in `valuation.json` |
 | `financials` | one company's annual figures in millions of its reporting currency, plus the TTM figures `valuation` uses |
-| `prices` | daily closes and volumes for the last N days |
+| `prices` | daily closes and volumes for the last N days (a year by default) |
 | `gaps` | figures missing from each company's latest fiscal year |
 | `describe` | the tables and views, their grain, units and columns |
 | `query` | one read-only DuckDB `SELECT`, at most 500 rows |
