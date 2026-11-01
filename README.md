@@ -68,6 +68,12 @@ starting from the example; `wl refresh` validates the file against the watchlist
 mkdir -p financials && cp financials.example/sap.yaml financials/<slug>.yaml
 ```
 
+A spin-off often has nothing to value until its first annual report: an SEC filer has 10-Qs
+but no full year to build trailing twelve months from, and an ESEF filer has nothing at all.
+Keep its `sec` or `esef` source and type the missing years into `financials/<slug>.yaml` from
+the Form 10, prospectus or interim report. Refresh adds them to the filed figures, the 10-Qs
+then build TTM on top, and the first annual report takes over for the years it covers.
+
 ## Outputs
 
 **`exports/valuation.json`**, one row per company: latest price and date, 52-week low, high and
@@ -114,14 +120,15 @@ terminal still works while Claude is connected. `query` runs on a connection tha
 or open files. Only `refresh` and the four list tools change anything; Claude Code asks before running them.
 
 For Claude Desktop, add this to `claude_desktop_config.json` (Settings → Developer → Edit
-Config). `--directory` makes the repo the working directory, so `.env`, `data/` and
-`watchlist.yaml` resolve:
+Config), then quit and reopen the app. `--directory` makes the repo the working directory, so
+`.env`, `data/` and `watchlist.yaml` resolve. Desktop does not read your shell's `PATH`, so give
+the full path to `uv` (`which uv` prints it):
 
 ```json
 {
   "mcpServers": {
     "watchlist": {
-      "command": "uv",
+      "command": "/Users/you/.local/bin/uv",
       "args": ["run", "--quiet", "--directory", "/path/to/watchlist-data", "wl", "mcp"]
     }
   }
@@ -173,7 +180,7 @@ Settings come from environment variables or `.env`, all prefixed `WL_`:
 | `WL_STORAGE` | `duckdb` | `ducklake` (SQLite catalog with Parquet files) does not work yet, see below |
 | `WL_DATA_DIR`, `WL_EXPORT_DIR` | `data`, `exports` | |
 | `WL_WATCHLIST_PATH` | `watchlist.yaml` | |
-| `WL_MANUAL_DIR` | `financials` | hand-entered figures for `financials: manual` companies |
+| `WL_MANUAL_DIR` | `financials` | hand-entered figures (`financials: manual`, or years a filer's filings lack) |
 | `WL_PRICE_HISTORY_DAYS` | `400` | days of price and FX history fetched on each refresh |
 | `WL_HTTP_TIMEOUT_S` | `30` | |
 
@@ -187,7 +194,7 @@ Settings come from environment variables or `.env`, all prefixed `WL_`:
 | US prices | Twelve Data `time_series` | US listings | free API key (8 req/min, 800/day) |
 | European prices | Yahoo via yfinance (`yahoo` extra) | any exchange Yahoo covers | none; unofficial, personal use |
 | Euronext prices | live.euronext.com price history download | Amsterdam, Brussels, Dublin, Lisbon, Milan, Oslo, Paris (needs the ISIN) | none |
-| Manual financials | `financials/<slug>.yaml`, typed in from the annual report | any company | none |
+| Manual financials | `financials/<slug>.yaml`, typed in from the annual report | any company, alone or for years its filings lack | none |
 | LEI lookup | GLEIF | all | none |
 
 Some countries' filings are not on filings.xbrl.org (Germany, for example). Mark those companies

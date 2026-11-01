@@ -201,7 +201,8 @@ def test_add_company_tool_returns_the_valuation_row(listed: Settings, refresh: F
     content = result.structured_content
     assert content is not None
     assert content["slug"] == "new-co"
-    assert content["hints"] == ["its financials did not load; see the report for the reason"]
+    (hint,) = content["hints"]  # pyright: ignore[reportGeneralTypeIssues]
+    assert str(hint).startswith("its financials did not load")
     valuation = content["valuation"]
     assert isinstance(valuation, dict)
     assert valuation["price"] == 10.0  # pyright: ignore[reportUnknownMemberType]

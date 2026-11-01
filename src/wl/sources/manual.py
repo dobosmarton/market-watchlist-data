@@ -3,10 +3,15 @@
 One YAML file per company in the manual directory (``financials/<slug>.yaml``, gitignored);
 ``financials.example/`` shows the format. Figures become facts under the ``manual`` taxonomy,
 which ``concepts.py`` maps onto every concept at the lowest priority.
+
+A company with ``financials: sec`` or ``esef`` can have a file too: ``WithManualYears`` adds
+its years to the filed facts, for years the filings do not cover yet (a spin-off's last year
+before its first annual report). Filed figures outrank typed ones wherever both give a year.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Literal
 
@@ -21,6 +26,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from wl.config import Company
+    from wl.sources.base import Provider
 
 SOURCE = "manual"
 _SCALE = {"units": 1.0, "thousands": 1e3, "millions": 1e6}
@@ -63,12 +69,32 @@ class ManualProvider:
     def __init__(self, directory: Path) -> None:
         self._directory = directory
 
+    def has_file(self, company: Company) -> bool:
+        return self._path(company).exists()
+
     def fetch(self, company: Company) -> list[Fact]:
-        path = self._directory / f"{company.slug}.yaml"
+        path = self._path(company)
         if not path.exists():
             msg = f"no {path} (see financials.example/)"
             raise MissingIdentifierError(msg)
         return parse_report(company, path)
+
+    def _path(self, company: Company) -> Path:
+        return self._directory / f"{company.slug}.yaml"
+
+
+@dataclass(frozen=True)
+class WithManualYears:
+    """A filing source plus the company's typed years, when it has a file."""
+
+    filed: Provider[Fact]
+    manual: ManualProvider
+
+    def fetch(self, company: Company) -> list[Fact]:
+        facts = self.filed.fetch(company)
+        if not self.manual.has_file(company):
+            return facts
+        return [*facts, *self.manual.fetch(company)]
 
 
 def parse_report(company: Company, path: Path) -> list[Fact]:

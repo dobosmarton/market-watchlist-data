@@ -94,7 +94,12 @@ def _hints(settings: Settings, company: Company, reports: list[RunReport]) -> li
         return [f"type its annual figures into {path} (see financials.example/), then refresh"]
     if company.needs_lei:
         return ["add its LEI (lookup_company finds it) so its ESEF filings can be found"]
-    return ["its financials did not load; see the report for the reason"]
+    typed = settings.manual_dir / f"{company.slug}.yaml"
+    hint = (
+        "its financials did not load; see the report for the reason. A recent spin-off has no "
+        f"annual report yet: type its last years into {typed}"
+    )
+    return [hint]
 
 
 def _forget(settings: Settings, slug: str) -> None:

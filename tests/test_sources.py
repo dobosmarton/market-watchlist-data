@@ -15,13 +15,14 @@ from wl.config import load_watchlist
 from wl.models import DateRange
 from wl.sources import esef, fx, gleif, sec
 from wl.sources.base import MissingIdentifierError, ProviderError
-from wl.sources.manual import ManualProvider
+from wl.sources.manual import ManualProvider, WithManualYears
 from wl.sources.prices import EuronextProvider, TwelveDataProvider
 
-from .conftest import fixture_bytes, make_company
+from .conftest import fixture_bytes, make_company, us_fact
 
 if TYPE_CHECKING:
     from wl.config import Company, Watchlist
+    from wl.models import Fact
 
 OCTOBER = DateRange(date(2026, 10, 1), date(2026, 10, 27))
 
@@ -174,6 +175,20 @@ def test_manual_without_a_file_is_a_missing_identifier(tmp_path: Path) -> None:
 def test_manual_rejects_bad_files(tmp_path: Path, change: tuple[str, str], message: str) -> None:
     with pytest.raises(ProviderError, match=message):
         _manual(tmp_path, ACME_YEAR.replace(*change)).fetch(make_company())
+
+
+class _Filed:
+    def fetch(self, company: Company) -> list[Fact]:
+        h1 = us_fact("Revenues", 1e9, start=date(2025, 1, 1), end=date(2025, 6, 30))
+        return [h1.model_copy(update={"slug": company.slug, "form": "10-Q"})]
+
+
+def test_typed_years_are_added_to_filed_facts_when_there_is_a_file(tmp_path: Path) -> None:
+    provider = WithManualYears(_Filed(), ManualProvider(tmp_path))
+    assert [f.source for f in provider.fetch(make_company())] == ["sec"]
+    (tmp_path / "acme.yaml").write_text(ACME_YEAR)
+    sources = {f.source for f in provider.fetch(make_company())}
+    assert sources == {"sec", "manual"}
 
 
 def test_example_manual_file_matches_the_example_watchlist() -> None:

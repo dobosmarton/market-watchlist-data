@@ -120,17 +120,17 @@ def test_fin_annual_derives_esef_shares_and_dna_and_reads_extension_tags(store: 
     assert one(store, "SELECT capex, shares_diluted, dna FROM fin_annual") == (4e7, 4e7, 4.5e7)
 
 
+def _manual(concept: str, value: float, *, flow: bool = True) -> Fact:
+    """Build a typed figure for ACME's fiscal 2024, as ``financials/acme.yaml`` gives it."""
+    fact = us_fact(concept, value, start=date(2024, 1, 1) if flow else None, end=date(2024, 12, 31))
+    return fact.model_copy(update={"taxonomy": "manual", "source": "manual", "form": "manual"})
+
+
 def test_manual_figures_fill_gaps_but_never_override_xbrl(loaded: Store) -> None:
-    y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
-
-    def manual(concept: str, value: float, start: date | None) -> Fact:
-        fact = us_fact(concept, value, start=start, end=y1)
-        return fact.model_copy(update={"taxonomy": "manual", "source": "manual"})
-
     loaded.replace_facts("acme", [
         *acme_facts(without="LongTermDebtNoncurrent"),
-        manual("revenue", 1.0, y0),
-        manual("debt_total", 7e8, None),
+        _manual("revenue", 1.0),
+        _manual("debt_total", 7e8, flow=False),
     ])  # fmt: skip
     assert one(loaded, "SELECT revenue, debt FROM fin_annual") == (2e9, 7e8)
 
@@ -173,6 +173,14 @@ def test_ttm_adds_this_year_to_date_and_drops_last_years(loaded: Store) -> None:
     )
     # revenue 2.0 + 1.2 - 0.9; op income has no quarterly figure and keeps the annual value
     assert row == ("ttm", H1_2025[1], 2.3e9, 1.4e8, 2e8, 6e8, 1e9, 1.1e8)
+
+
+def test_ttm_of_a_spin_off_starts_from_its_typed_last_year(loaded: Store) -> None:
+    # 10-Qs only (no 10-K yet), plus the year before the spin-off typed in from its Form 10
+    typed = [_manual("revenue", 2e9), _manual("net_income", 1e8), _manual("cash", 5e8, flow=False)]
+    loaded.replace_facts("acme", [*typed, *_half_year()])
+    row = one(loaded, "SELECT basis, revenue, net_income, cash FROM fin_ttm WHERE slug = 'acme'")
+    assert row == ("ttm", 2.3e9, 1.4e8, 6e8)
     assert one(loaded, "SELECT cash FROM fin_annual") == (5e8,)
 
 

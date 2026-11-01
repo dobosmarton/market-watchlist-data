@@ -1,4 +1,5 @@
-# Hand-entered annual figures for a company with `financials: manual` in watchlist.yaml.
+# Hand-entered annual figures for a company with `financials: manual` in watchlist.yaml, or
+# for years an `sec` or `esef` company's filings do not cover yet (a spin-off, for example).
 # Copy to financials/<slug>.yaml (gitignored) and fill it from the consolidated statements:
 #   mkdir -p financials && cp financials.example/sap.yaml financials/<slug>.yaml
 #

@@ -20,7 +20,7 @@ from wl.models import DateRange, Fact, PriceBar
 from wl.sources import fx
 from wl.sources.base import MissingIdentifierError, ProviderError
 from wl.sources.esef import EsefProvider
-from wl.sources.manual import ManualProvider
+from wl.sources.manual import ManualProvider, WithManualYears
 from wl.sources.prices import EuronextProvider, TwelveDataProvider, YahooProvider
 from wl.sources.sec import SecProvider
 from wl.store import Store
@@ -167,13 +167,14 @@ def build_jobs(store: Store, client: httpx.Client, settings: Settings) -> dict[J
         providers=_price_providers(client, settings, window),
         write=lambda _company, bars: store.upsert_prices(bars),
     )
+    manual = ManualProvider(settings.manual_dir)
     financials = CompanyJob[Fact](
         Job.FINANCIALS,
         source_of=lambda company: company.sources.financials,
         providers={
-            "sec": SecProvider(client),
-            "esef": EsefProvider(client),
-            "manual": ManualProvider(settings.manual_dir),
+            "sec": WithManualYears(SecProvider(client), manual),
+            "esef": WithManualYears(EsefProvider(client), manual),
+            "manual": manual,
         },
         write=lambda company, facts: store.replace_facts(company.slug, facts),
     )

@@ -14,4 +14,5 @@
 - `watchlist.yaml` is written only by `wl.watchlist_file`, which edits entry blocks as text and
   checks the result against the intended list; tests point `watchlist_path` at a tmp file.
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.
+  `financials/<slug>.yaml` also adds typed years to an `sec`/`esef` company (`WithManualYears`).
 - Do not commit `.env`, `data/` or `exports/`.
