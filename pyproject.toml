@@ -7,6 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "duckdb>=1.5,<2",  # SQLMesh supports DuckDB 1.x only for now
     "httpx>=0.28",
+    "mcp>=2.3,<3",
     "polars>=1.20",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",

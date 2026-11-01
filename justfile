@@ -38,6 +38,10 @@ export:
 gaps:
     uv run wl gaps
 
+# Serve the data to Claude over MCP (stdio; Claude Code starts it from .mcp.json)
+mcp:
+    uv run wl mcp
+
 # Resolve missing LEIs from GLEIF
 resolve-ids:
     uv run wl resolve-ids

@@ -9,5 +9,7 @@
   currency conversion happens only in `src/wl/transform/models/valuation.sql` using ECB rates.
 - Marts are SQLMesh view models in `src/wl/transform/models/`; the raw tables they read are
   declared in `external_models.yaml` (a test checks it against `store.py`).
+- MCP tools live in `src/wl/mcp_server.py` as plain functions over a `Store`; the server opens a
+  read-only store per call. Only the `refresh` tool writes.
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.
 - Do not commit `.env`, `data/` or `exports/`.

@@ -13,7 +13,7 @@ from wl.models import Fact, FxRate, PriceBar
 from wl.pipeline import CompanyJob, FxJob, Job, build_jobs
 from wl.sources.base import MissingIdentifierError, ProviderError
 
-from .conftest import make_company, one
+from .conftest import acme_facts, make_company, one, us_fact
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -23,52 +23,6 @@ if TYPE_CHECKING:
     from wl.settings import Settings
     from wl.sources.base import Provider
     from wl.store import Store
-
-
-def _fact(tag: str, value: float, *, start: date | None, end: date, unit: str = "USD") -> Fact:
-    return Fact(
-        slug="acme", taxonomy="us-gaap", tag=tag, unit=unit, period_start=start, period_end=end,
-        value=value, form="10-K", filed=date(2025, 2, 20), source="sec", source_url="u",
-    )  # fmt: skip
-
-
-def _acme_facts(*, without: str | None = None) -> list[Fact]:
-    """One complete fiscal year for ACME, optionally without one tag."""
-    y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
-    facts = [
-        _fact("Revenues", 2_000_000_000, start=y0, end=y1),
-        _fact("OperatingIncomeLoss", 200_000_000, start=y0, end=y1),
-        _fact("NetIncomeLoss", 100_000_000, start=y0, end=y1),
-        _fact("NetCashProvidedByUsedInOperatingActivities", 500_000_000, start=y0, end=y1),
-        _fact("PaymentsToAcquirePropertyPlantAndEquipment", 100_000_000, start=y0, end=y1),
-        _fact("DepreciationDepletionAndAmortization", 100_000_000, start=y0, end=y1),
-        _fact("CashAndCashEquivalentsAtCarryingValue", 500_000_000, start=None, end=y1),
-        _fact("LongTermDebtNoncurrent", 1_000_000_000, start=None, end=y1),
-        _fact(
-            "WeightedAverageNumberOfDilutedSharesOutstanding", 100_000_000,
-            start=y0, end=y1, unit="shares",
-        ),
-        # a quarter and a foreign-currency value must be ignored
-        _fact("Revenues", 9e9, start=date(2024, 10, 1), end=y1),
-        _fact("Revenues", 9e9, start=y0, end=y1, unit="EUR"),
-    ]  # fmt: skip
-    return [fact for fact in facts if fact.tag != without]
-
-
-@pytest.fixture
-def loaded(store: Store, watchlist: Watchlist) -> Store:
-    """ACME with one fiscal year of facts, two price bars, and EUR/USD."""
-    store.sync_companies(watchlist.companies)
-    store.replace_facts("acme", _acme_facts())
-    store.upsert_prices([
-        PriceBar(slug="acme", date=date(2026, 10, d), open=None, high=h, low=lo, close=c,
-                 volume=None, ccy="USD", source="twelvedata")
-        for d, h, lo, c in ((26, 60.0, 40.0, 45.0), (27, 52.0, 48.0, 50.0))
-    ])  # fmt: skip
-    store.upsert_fx(
-        [FxRate(date=date(2026, 10, 27), base="EUR", quote="USD", rate=1.1, source="t")]
-    )
-    return store
 
 
 def test_fin_annual(loaded: Store) -> None:
@@ -93,7 +47,7 @@ def test_valuation(loaded: Store) -> None:
 
 
 def test_untagged_debt_counts_as_zero_once_cash_is_reported(loaded: Store) -> None:
-    loaded.replace_facts("acme", _acme_facts(without="LongTermDebtNoncurrent"))
+    loaded.replace_facts("acme", acme_facts(without="LongTermDebtNoncurrent"))
     net_debt, ev, reported = one(
         loaded,
         "SELECT net_debt, enterprise_value, debt_reported FROM valuation WHERE slug = 'acme'",
@@ -102,12 +56,12 @@ def test_untagged_debt_counts_as_zero_once_cash_is_reported(loaded: Store) -> No
 
 
 def test_no_enterprise_value_without_a_balance_sheet(loaded: Store) -> None:
-    loaded.replace_facts("acme", _acme_facts(without="CashAndCashEquivalentsAtCarryingValue"))
+    loaded.replace_facts("acme", acme_facts(without="CashAndCashEquivalentsAtCarryingValue"))
     assert one(loaded, "SELECT enterprise_value FROM valuation WHERE slug = 'acme'") == (None,)
 
 
 def test_gaps_list_missing_concepts_and_companies_without_financials(loaded: Store) -> None:
-    loaded.replace_facts("acme", _acme_facts(without="LongTermDebtNoncurrent"))
+    loaded.replace_facts("acme", acme_facts(without="LongTermDebtNoncurrent"))
     gaps = {row["slug"]: (row["period_end"], row["missing"]) for row in loaded.gaps()}
     assert gaps["acme"] == (date(2024, 12, 31), "debt")
     assert gaps["euro-co"][0] is None
@@ -123,9 +77,9 @@ def test_valuation_converts_quote_to_reporting_currency(store: Store) -> None:
     y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
     store.replace_facts("eu", [
         f.model_copy(update={"slug": "eu"}) for f in (
-            _fact("Revenues", 1e9, start=y0, end=y1),
-            _fact("NetIncomeLoss", 1e8, start=y0, end=y1),
-            _fact("WeightedAverageNumberOfDilutedSharesOutstanding", 1e8, start=y0, end=y1,
+            us_fact("Revenues", 1e9, start=y0, end=y1),
+            us_fact("NetIncomeLoss", 1e8, start=y0, end=y1),
+            us_fact("WeightedAverageNumberOfDilutedSharesOutstanding", 1e8, start=y0, end=y1,
                   unit="shares"),
         )
     ])  # fmt: skip
@@ -150,7 +104,7 @@ def test_fin_annual_derives_esef_shares_and_dna_and_reads_extension_tags(store: 
     capex = "PurchaseOfPropertyPlantAndEquipmentAndPurchaseOfIntangibleAssetsClassifiedAsInvestingActivities"  # noqa: E501
 
     def esef(tag: str, value: float, taxonomy: str = "ifrs-full", unit: str = "EUR") -> Fact:
-        fact = _fact(tag, value, start=y0, end=y1)
+        fact = us_fact(tag, value, start=y0, end=y1)
         return fact.model_copy(update={"slug": "eu", "taxonomy": taxonomy, "unit": unit})
 
     store.replace_facts("eu", [
@@ -169,11 +123,11 @@ def test_manual_figures_fill_gaps_but_never_override_xbrl(loaded: Store) -> None
     y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
 
     def manual(concept: str, value: float, start: date | None) -> Fact:
-        fact = _fact(concept, value, start=start, end=y1)
+        fact = us_fact(concept, value, start=start, end=y1)
         return fact.model_copy(update={"taxonomy": "manual", "source": "manual"})
 
     loaded.replace_facts("acme", [
-        *_acme_facts(without="LongTermDebtNoncurrent"),
+        *acme_facts(without="LongTermDebtNoncurrent"),
         manual("revenue", 1.0, y0),
         manual("debt_total", 7e8, None),
     ])  # fmt: skip
@@ -182,7 +136,7 @@ def test_manual_figures_fill_gaps_but_never_override_xbrl(loaded: Store) -> None
 
 # ---------------------------------------------------------------- trailing twelve months
 def _quarterly(tag: str, value: float, *, start: date | None, end: date, unit: str = "USD") -> Fact:
-    fact = _fact(tag, value, start=start, end=end, unit=unit)
+    fact = us_fact(tag, value, start=start, end=end, unit=unit)
     return fact.model_copy(update={"form": "10-Q", "filed": date(2025, 8, 1)})
 
 
@@ -210,7 +164,7 @@ def _half_year(*, without_prior: str | None = None) -> list[Fact]:
 
 
 def test_ttm_adds_this_year_to_date_and_drops_last_years(loaded: Store) -> None:
-    loaded.replace_facts("acme", [*_acme_facts(), *_half_year()])
+    loaded.replace_facts("acme", [*acme_facts(), *_half_year()])
     row = one(
         loaded,
         "SELECT basis, period_end, revenue, net_income, op_income, cash, debt, shares_diluted "
@@ -222,7 +176,7 @@ def test_ttm_adds_this_year_to_date_and_drops_last_years(loaded: Store) -> None:
 
 
 def test_ttm_keeps_the_annual_value_without_last_years_comparative(loaded: Store) -> None:
-    loaded.replace_facts("acme", [*_acme_facts(), *_half_year(without_prior="Revenues")])
+    loaded.replace_facts("acme", [*acme_facts(), *_half_year(without_prior="Revenues")])
     basis, period_end, revenue, net_income = one(
         loaded, "SELECT basis, period_end, revenue, net_income FROM fin_ttm WHERE slug = 'acme'"
     )
@@ -254,7 +208,7 @@ def test_export(loaded: Store, tmp_path: Path) -> None:
 
 
 def test_replace_facts_rolls_back_on_error(loaded: Store) -> None:
-    bad = _fact("Revenues", 1.0, start=None, end=date(2024, 12, 31))
+    bad = us_fact("Revenues", 1.0, start=None, end=date(2024, 12, 31))
     object.__setattr__(bad, "value", "not a number")
     with pytest.raises(Exception):  # noqa: B017, PT011
         loaded.replace_facts("acme", [bad])

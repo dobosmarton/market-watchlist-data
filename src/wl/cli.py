@@ -12,7 +12,7 @@ from wl.export import write_exports
 from wl.http import make_client
 from wl.log import configure_logging
 from wl.marts import build_marts
-from wl.pipeline import Job, build_jobs
+from wl.pipeline import Job, run_refresh
 from wl.settings import Settings
 from wl.sources.gleif import lei_for_isin
 from wl.store import Store
@@ -49,14 +49,8 @@ def _load_watchlist(settings: Settings) -> Watchlist:
 def refresh(what: Annotated[What, typer.Argument()] = What.ALL) -> None:
     """Fetch fresh data into the local store; the marts read it from there."""
     settings = Settings()
-    watchlist = _load_watchlist(settings)
-    with Store.open(settings) as store, make_client(settings) as client:
-        store.sync_companies(watchlist.companies)
-        jobs = build_jobs(store, client, settings)
-        selected = list(jobs.values()) if what is What.ALL else [jobs[Job(what)]]
-        reports = [job.run(watchlist) for job in selected]
-    build_marts(settings)
-    for report in reports:
+    job = None if what is What.ALL else Job(what)
+    for report in run_refresh(settings, _load_watchlist(settings), job):
         typer.echo("\n".join(report.lines()))
 
 
@@ -94,6 +88,14 @@ def gaps() -> None:
         period_end = row["period_end"]
         detail = row["missing"] if period_end else "no annual financials"
         typer.echo(f"{row['slug']:10} {period_end or '-'!s:10}  {detail}")
+
+
+@app.command()
+def mcp() -> None:
+    """Serve the watchlist data to Claude over MCP (stdio); see .mcp.json."""
+    from wl.mcp_server import build_server  # noqa: PLC0415  (pulls in the MCP SDK)
+
+    build_server(Settings()).run("stdio")
 
 
 @app.command()

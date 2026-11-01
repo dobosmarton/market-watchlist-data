@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import warnings
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -11,6 +12,7 @@ from pydantic import SecretStr
 
 from wl.config import Company, Listing, Sources, Watchlist
 from wl.marts import build_marts
+from wl.models import Fact, FxRate, PriceBar
 from wl.settings import Settings
 from wl.store import Store
 
@@ -116,3 +118,49 @@ def watchlist() -> Watchlist:
             ),
         )
     )  # fmt: skip
+
+
+def us_fact(tag: str, value: float, *, start: date | None, end: date, unit: str = "USD") -> Fact:
+    return Fact(
+        slug="acme", taxonomy="us-gaap", tag=tag, unit=unit, period_start=start, period_end=end,
+        value=value, form="10-K", filed=date(2025, 2, 20), source="sec", source_url="u",
+    )  # fmt: skip
+
+
+def acme_facts(*, without: str | None = None) -> list[Fact]:
+    """One complete fiscal year for ACME, optionally without one tag."""
+    y0, y1 = date(2024, 1, 1), date(2024, 12, 31)
+    facts = [
+        us_fact("Revenues", 2_000_000_000, start=y0, end=y1),
+        us_fact("OperatingIncomeLoss", 200_000_000, start=y0, end=y1),
+        us_fact("NetIncomeLoss", 100_000_000, start=y0, end=y1),
+        us_fact("NetCashProvidedByUsedInOperatingActivities", 500_000_000, start=y0, end=y1),
+        us_fact("PaymentsToAcquirePropertyPlantAndEquipment", 100_000_000, start=y0, end=y1),
+        us_fact("DepreciationDepletionAndAmortization", 100_000_000, start=y0, end=y1),
+        us_fact("CashAndCashEquivalentsAtCarryingValue", 500_000_000, start=None, end=y1),
+        us_fact("LongTermDebtNoncurrent", 1_000_000_000, start=None, end=y1),
+        us_fact(
+            "WeightedAverageNumberOfDilutedSharesOutstanding", 100_000_000,
+            start=y0, end=y1, unit="shares",
+        ),
+        # a quarter and a foreign-currency value must be ignored
+        us_fact("Revenues", 9e9, start=date(2024, 10, 1), end=y1),
+        us_fact("Revenues", 9e9, start=y0, end=y1, unit="EUR"),
+    ]  # fmt: skip
+    return [fact for fact in facts if fact.tag != without]
+
+
+@pytest.fixture
+def loaded(store: Store, watchlist: Watchlist) -> Store:
+    """ACME with one fiscal year of facts, two price bars, and EUR/USD."""
+    store.sync_companies(watchlist.companies)
+    store.replace_facts("acme", acme_facts())
+    store.upsert_prices([
+        PriceBar(slug="acme", date=date(2026, 10, d), open=None, high=h, low=lo, close=c,
+                 volume=None, ccy="USD", source="twelvedata")
+        for d, h, lo, c in ((26, 60.0, 40.0, 45.0), (27, 52.0, 48.0, 50.0))
+    ])  # fmt: skip
+    store.upsert_fx(
+        [FxRate(date=date(2026, 10, 27), base="EUR", quote="USD", rate=1.1, source="t")]
+    )
+    return store

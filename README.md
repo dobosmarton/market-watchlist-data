@@ -3,9 +3,9 @@
 The data pipeline behind the market-analysis watchlist dashboard. For the companies on your
 watchlist it collects daily prices, ECB exchange rates and annual reported financials from free public
 sources, stores them in DuckDB, computes valuation ratios in SQL, and writes the two JSON files
-the dashboard reads.
+the dashboard reads. An MCP server lets Claude answer questions from the same data.
 
-**Status: milestone 2.** It runs end to end from a CLI against the live sources. See
+**Status: milestones 2 and 4.** It runs end to end from a CLI against the live sources. See
 [Data caveats](#data-caveats) for what the figures can and cannot tell you.
 
 ## How it works
@@ -27,7 +27,7 @@ marts.price_stats,             every refresh
 marts.valuation
       │
       ▼
-exports/valuation.json         read by the dashboard
+exports/valuation.json         read by the dashboard;  wl mcp: the same marts for Claude
 exports/financials.json
 ```
 
@@ -42,6 +42,8 @@ exports/financials.json
    `valuation` joins `fin_ttm` to the latest price, converting between quote and reporting
    currency with ECB rates.
 3. **Export** (`wl export`) writes the marts out under the column names the dashboard expects.
+4. **Ask** (`wl mcp`) serves the marts to Claude over MCP; see
+   [Ask Claude about your watchlist](#ask-claude-about-your-watchlist).
 
 ## Your watchlist
 
@@ -75,6 +77,44 @@ the ratios: `ttm` or `annual`, with the end of the period they cover (`fin_perio
 operating margin, net income and free cash flow, in the reporting currency, scaled to bn or m
 per company.
 
+## Ask Claude about your watchlist
+
+`wl mcp` is an MCP server (stdio) over the local database. Claude Code picks it up from the
+committed `.mcp.json` when you open this repo: approve the `watchlist` server, then ask things
+like "which companies have net cash and trade below 10× EV/EBITDA?".
+
+| Tool | What it returns |
+|---|---|
+| `companies` | the watchlist, optionally one group |
+| `valuation` | price, 52-week range, market cap and ratios, as in `valuation.json` |
+| `financials` | one company's annual figures in millions of its reporting currency, plus the TTM figures `valuation` uses |
+| `prices` | daily closes and volumes for the last N days |
+| `gaps` | figures missing from each company's latest fiscal year |
+| `describe` | the tables and views, their grain, units and columns |
+| `query` | one read-only DuckDB `SELECT`, at most 500 rows |
+| `refresh` | runs `wl refresh` (all or one job) and returns its report |
+
+Every read opens its own read-only connection and closes it again, so `just refresh` in a
+terminal still works while Claude is connected. `query` runs on a connection that cannot write
+or open files. `refresh` is the only tool that changes data; Claude Code asks before running it.
+
+For Claude Desktop, add this to `claude_desktop_config.json` (Settings → Developer → Edit
+Config). `--directory` makes the repo the working directory, so `.env`, `data/` and
+`watchlist.yaml` resolve:
+
+```json
+{
+  "mcpServers": {
+    "watchlist": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--directory", "/path/to/watchlist-data", "wl", "mcp"]
+    }
+  }
+}
+```
+
+Use the absolute path to `uv` (`which uv`) if Desktop cannot find it.
+
 ## Quick start
 
 ```sh
@@ -101,6 +141,7 @@ on a Mac and on a VPS.
 |---|---|
 | `wl refresh [all\|fx\|prices\|financials]` | fetch data, then rebuild the marts |
 | `wl export` | write the dashboard JSON files |
+| `wl mcp` | serve the data to Claude over MCP (stdio) |
 | `wl gaps` | concepts missing from each company's latest fiscal year |
 | `wl companies` | list companies with their identifiers and sources |
 | `wl resolve-ids` | look up missing LEIs on GLEIF for ESEF companies |
@@ -155,6 +196,7 @@ src/wl/
   marts.py              builds the marts with SQLMesh
   pipeline.py           refresh jobs and their wiring; one company failing never stops the rest
   export.py             dashboard JSON
+  mcp_server.py         MCP tools over the marts (read-only, plus refresh)
   cli.py                `wl` command
 tests/                  offline tests with recorded fixtures
 ```
@@ -191,9 +233,10 @@ changing the data:
   views, and a CLI to run from cron or launchd.
 - **Milestone 2 (done):** hand-entered figures for `manual` companies, a Euronext price
   provider, trailing twelve months from 10-Qs, and SQLMesh models in place of the SQL views.
-- **Next:** make DuckLake storage work (the raw tables' primary keys and upserts need
-  replacing), then milestones 3–4: Dagster webserver and daemon for scheduling, and an MCP
-  server.
+- **Milestone 4 (done):** an MCP server (`wl mcp`) so Claude can read the marts and run a
+  refresh.
+- **Next:** milestone 3, Dagster webserver and daemon for scheduling, and making DuckLake
+  storage work (the raw tables' primary keys and upserts need replacing).
 
 ## Data caveats
 

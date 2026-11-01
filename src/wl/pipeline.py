@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING, Protocol
 
 import httpx
 
+from wl.http import make_client
 from wl.log import get_logger
+from wl.marts import build_marts
 from wl.models import DateRange, Fact, PriceBar
 from wl.sources import fx
 from wl.sources.base import MissingIdentifierError, ProviderError
@@ -20,6 +22,7 @@ from wl.sources.esef import EsefProvider
 from wl.sources.manual import ManualProvider
 from wl.sources.prices import EuronextProvider, TwelveDataProvider, YahooProvider
 from wl.sources.sec import SecProvider
+from wl.store import Store
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -28,7 +31,6 @@ if TYPE_CHECKING:
     from wl.models import FxRate
     from wl.settings import Settings
     from wl.sources.base import Provider
-    from wl.store import Store
 
 log = get_logger(__name__)
 
@@ -113,6 +115,19 @@ class CompanyJob[T]:
             return
         report.rows += self.write(company, records)
         report.ok.append(company.slug)
+
+
+def run_refresh(
+    settings: Settings, watchlist: Watchlist, job: Job | None = None
+) -> list[RunReport]:
+    """Run one job, or all of them, then rebuild the marts once the store is closed."""
+    with Store.open(settings) as store, make_client(settings) as client:
+        store.sync_companies(watchlist.companies)
+        jobs = build_jobs(store, client, settings)
+        selected = list(jobs.values()) if job is None else [jobs[job]]
+        reports = [selected_job.run(watchlist) for selected_job in selected]
+    build_marts(settings)
+    return reports
 
 
 def build_jobs(store: Store, client: httpx.Client, settings: Settings) -> dict[Job, RefreshJob]:

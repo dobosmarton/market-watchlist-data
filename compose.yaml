@@ -1,4 +1,4 @@
-# One-shot jobs. Dagster webserver/daemon and the MCP server join in milestones 3-4.
+# One-shot jobs. The MCP server runs locally over stdio (.mcp.json); Dagster is milestone 3.
 services:
   refresh:
     build: .

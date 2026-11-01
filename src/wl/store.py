@@ -60,17 +60,20 @@ class Store:
     """A DuckDB connection with typed writes. Once open, the raw tables exist.
 
     Unqualified names resolve in ``main`` and then ``marts``, so queries can say ``valuation``.
+    A read-only store creates nothing and can reach no files besides the database.
     """
 
-    def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, con: duckdb.DuckDBPyConnection, *, read_only: bool = False) -> None:
         self._con = con
-        self._con.execute(_SCHEMA)
+        if not read_only:
+            self._con.execute(_SCHEMA)
         self._con.execute("SET search_path = 'main,marts'")
-        self._sync_concept_map()
+        if not read_only:
+            self._sync_concept_map()
 
     @classmethod
-    def open(cls, settings: Settings) -> Self:
-        return cls(_connect(settings))
+    def open(cls, settings: Settings, *, read_only: bool = False) -> Self:
+        return cls(_connect(settings, read_only=read_only), read_only=read_only)
 
     def __enter__(self) -> Self:
         return self
@@ -134,6 +137,21 @@ class Store:
         names = [column[0] for column in cursor.description]
         return [dict(zip(names, values, strict=True)) for values in cursor.fetchall()]
 
+    def select(self, sql: str, max_rows: int) -> tuple[list[Row], bool]:
+        """Run one SELECT from outside the code; returns the first rows and whether more exist.
+
+        Open the store read-only for untrusted SQL: that connection cannot write or reach files.
+        """
+        statements = self._con.extract_statements(sql)
+        if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
+            msg = "only a single SELECT (or WITH ... SELECT) statement is allowed"
+            raise ValueError(msg)
+        cursor = self._con.execute(sql)
+        names = [column[0] for column in cursor.description]
+        rows = cursor.fetchmany(max_rows + 1)
+        records = [dict(zip(names, values, strict=True)) for values in rows[:max_rows]]
+        return records, len(rows) > max_rows
+
     def unmapped_tags(self, slug: str, limit: int) -> list[Row]:
         """List a company's most frequent annual tags that ``concepts.py`` does not map yet."""
         return self.query(
@@ -161,14 +179,22 @@ class Store:
             self._con.executemany("INSERT INTO concept_map VALUES (?, ?, ?, ?, ?)", concept_rows())
 
 
-def _connect(settings: Settings) -> duckdb.DuckDBPyConnection:
+def _connect(settings: Settings, *, read_only: bool) -> duckdb.DuckDBPyConnection:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     if settings.storage == "duckdb":
+        if read_only:  # no file, network or extension access beyond the database itself
+            config: dict[str, str | bool | int | float | list[str]] = {
+                "enable_external_access": False
+            }
+            return duckdb.connect(str(settings.db_path), read_only=True, config=config)
         return duckdb.connect(str(settings.db_path))
     con = duckdb.connect()
     catalog = settings.data_dir / "catalog.sqlite"
     files = settings.data_dir / "lake"
+    mode = ", READ_ONLY" if read_only else ""
     con.execute("INSTALL ducklake; INSTALL sqlite; LOAD ducklake;")
-    con.execute(f"ATTACH 'ducklake:sqlite:{catalog}' AS lake (DATA_PATH '{files}/')")
+    con.execute(f"ATTACH 'ducklake:sqlite:{catalog}' AS lake (DATA_PATH '{files}/'{mode})")
     con.execute("USE lake")
+    if read_only:
+        con.execute("SET enable_external_access = false")
     return con

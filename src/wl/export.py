@@ -38,7 +38,7 @@ def valuation_rows(store: Store) -> list[Row]:
         FROM marts.valuation ORDER BY slug
         """
     )
-    return [{key: _clean(value) for key, value in row.items()} for row in rows]
+    return [{key: clean(value) for key, value in row.items()} for row in rows]
 
 
 def financial_rows(store: Store) -> list[Row]:
@@ -62,7 +62,7 @@ def _financial_row(row: Row) -> Row:
         "estimate": False,
         "revenue": _scaled(row["revenue"], divisor),
         "op_income": _scaled(row["op_income"], divisor),
-        "margin_pct": _clean(row["op_margin_pct"], 1),
+        "margin_pct": clean(row["op_margin_pct"], 1),
         "net_income": _scaled(row["net_income"], divisor),
         "fcf": _scaled(row["fcf"], divisor),
         "units": units,
@@ -78,10 +78,10 @@ def _units(largest_revenue: object) -> tuple[str, float]:
 
 
 def _scaled(value: object, divisor: float) -> object:
-    return _clean(value / divisor) if isinstance(value, float) else None
+    return clean(value / divisor) if isinstance(value, float) else None
 
 
-def _clean(value: object, digits: int = 2) -> object:
+def clean(value: object, digits: int = 2) -> object:
     """JSON-safe values: NaN and infinity become null, dates ISO strings, floats rounded."""
     if isinstance(value, float):
         return None if math.isnan(value) or math.isinf(value) else round(value, digits)

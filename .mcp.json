@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "watchlist": {
+      "command": "uv",
+      "args": ["run", "--quiet", "wl", "mcp"]
+    }
+  }
+}
