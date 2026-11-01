@@ -8,11 +8,13 @@ file free for ``wl refresh`` in another process. Watchlist changes go through ``
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import duckdb
 import httpx
 from mcp.server import MCPServer
+from mcp.server.apps import Apps, ResourceCsp
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
@@ -56,6 +58,14 @@ TABLES = {
     "except price and market_cap_quote (quote currency); full units",
 }
 
+# MCP Apps views (src/wl/ui): base.html plus one script per view, drawn with Vega-Lite in hosts
+# that render apps (Claude Desktop); other clients get the same results as text
+UI_DIR = Path(__file__).parent / "ui"
+VIEWS = ("prices", "financials", "valuation", "chart")
+UI_CDN = "https://cdn.jsdelivr.net"  # the only origin the views load scripts from
+_VIEW_SLOT = "/* VIEW */"
+_SPEC_ROOTS = ("mark", "layer", "concat", "hconcat", "vconcat", "facet", "repeat")
+
 _INSTRUCTIONS = """\
 A personal stock watchlist: prices, ECB FX rates, and figures from annual reports (SEC, ESEF
 or hand-entered) for a list of companies, identified by slug.
@@ -64,7 +74,9 @@ of its reporting currency. For anything else, call `describe` and then `query` w
 To add a company, find its identifiers with `lookup_company`, then call `add_company`;
 `update_company` and `remove_company` change the list. Change the list only when asked.
 Data is as fresh as the last refresh: check price_date and fin_period_end before calling it
-current. Call `refresh` only when the user asks for fresh data."""
+current. Call `refresh` only when the user asks for fresh data.
+`prices`, `financials` and `valuation` draw charts in hosts that show apps; for any other chart,
+call `chart` with a SELECT and a Vega-Lite spec."""
 
 _READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 _REFRESH = ToolAnnotations(
@@ -173,6 +185,29 @@ def run_query(store: Store, sql: str) -> Row:
     return {"rows": [_cleaned(row) for row in rows], "truncated": truncated}
 
 
+def chart_of(store: Store, sql: str, spec: dict[str, object], title: str | None) -> Row:
+    """Run the query and put its rows into the spec, so a chart only ever shows queried data."""
+    if not any(key in spec for key in _SPEC_ROOTS):
+        msg = f"spec needs a Vega-Lite mark or composition ({', '.join(_SPEC_ROOTS)})"
+        raise ToolError(msg)
+    result = run_query(store, sql)
+    drawn = {key: value for key, value in spec.items() if key not in {"data", "datasets"}}
+    return {**result, "title": title, "spec": {**drawn, "data": {"values": result["rows"]}}}
+
+
+def ui_html(view: str) -> str:
+    """Compose the shared app shell with one view's script."""
+    base = (UI_DIR / "base.html").read_text(encoding="utf-8")
+    if base.count(_VIEW_SLOT) != 1:
+        msg = f"base.html must hold exactly one {_VIEW_SLOT}"
+        raise ValueError(msg)
+    return base.replace(_VIEW_SLOT, (UI_DIR / f"{view}.js").read_text(encoding="utf-8"))
+
+
+def view_uri(view: str) -> str:
+    return f"ui://watchlist/{view}"
+
+
 def refresh_data(settings: Settings, job: Job | None) -> list[str]:
     if not settings.watchlist_path.exists():
         msg = f"{settings.watchlist_path} not found"
@@ -208,9 +243,16 @@ def _cleaned(row: Row) -> Row:
 def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a small wrapper per tool)
     # MCP reads the return annotations: a spelled-out dict comes back as the structured result
     # itself, anything else (lists, aliases) wrapped as {"result": ...}
-    server = MCPServer("watchlist", instructions=_INSTRUCTIONS)
     # tools run on worker threads; DuckDB allows one configuration per file and process
     lock = threading.RLock()  # re-entrant: a change reads its result back under the lock
+    apps = Apps()
+    for view in VIEWS:
+        apps.add_html_resource(
+            view_uri(view),
+            ui_html(view),
+            name=f"{view} view",
+            csp=ResourceCsp(resource_domains=[UI_CDN]),  # no connect domains: it cannot fetch
+        )
 
     def read[T](tool: Callable[[Store], T]) -> T:
         with lock:
@@ -226,6 +268,45 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
                     raise ToolError(msg) from exc
                 msg = "database busy (is a refresh running?); try again shortly"
                 raise ToolError(msg) from exc
+
+    @apps.tool(resource_uri=view_uri("valuation"), annotations=_READ)
+    def valuation(slugs: list[str] | None = None) -> list[dict[str, object]]:
+        """Price, 52-week range, market cap (bn, quote currency) and valuation ratios.
+
+        Ratios use trailing twelve months where basis is 'ttm', else the last annual report
+        (fin_period_end). nd_ebitda below zero means net cash; debt_reported false means no
+        borrowings were tagged and debt counts as zero.
+        """
+        return read(lambda store: valuation_of(store, slugs))
+
+    @apps.tool(resource_uri=view_uri("financials"), annotations=_READ)
+    def financials(slug: str, years: int = 10) -> dict[str, object]:
+        """One company's annual figures, oldest first, in millions of its reporting currency.
+
+        `latest` holds the trailing-twelve-month figures (or the latest year) used by
+        `valuation`. source_url links each year's filing.
+        """
+        return read(lambda store: financials_of(store, slug, years))
+
+    @apps.tool(resource_uri=view_uri("prices"), annotations=_READ)
+    def prices(slug: str, days: int = 90) -> dict[str, object]:
+        """Daily closes and volumes for the last `days` calendar days, in the quote currency."""
+        days = max(1, min(days, settings.price_history_days))
+        return read(lambda store: price_history(store, slug, days))
+
+    @apps.tool(resource_uri=view_uri("chart"), annotations=_READ)
+    def chart(sql: str, spec: dict[str, object], title: str | None = None) -> dict[str, object]:
+        """Draw any chart: run one SELECT (as in `query`) and plot its rows with a Vega-Lite spec.
+
+        `spec` is a Vega-Lite v6 spec without data: the query's rows become its data, so use
+        the query's column names as fields. Prefer `prices`, `financials` and `valuation` when
+        they show what is asked. Money in the marts is in full units of each company's
+        reporting currency, so compare ratios across companies, not amounts. Ratios have
+        outliers (negative or very high P/E): filter them in the SQL so the rest stays readable.
+        """
+        return read(lambda store: chart_of(store, sql, spec, title))
+
+    server = MCPServer("watchlist", instructions=_INSTRUCTIONS, extensions=[apps])
 
     @server.tool(annotations=_READ)
     def describe() -> dict[str, dict[str, object]]:
@@ -293,31 +374,6 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
         """
         change(lambda: live.remove_company(settings, slug))
         return {"removed": slug}
-
-    @server.tool(annotations=_READ)
-    def valuation(slugs: list[str] | None = None) -> list[dict[str, object]]:
-        """Price, 52-week range, market cap (bn, quote currency) and valuation ratios.
-
-        Ratios use trailing twelve months where basis is 'ttm', else the last annual report
-        (fin_period_end). nd_ebitda below zero means net cash; debt_reported false means no
-        borrowings were tagged and debt counts as zero.
-        """
-        return read(lambda store: valuation_of(store, slugs))
-
-    @server.tool(annotations=_READ)
-    def financials(slug: str, years: int = 10) -> dict[str, object]:
-        """One company's annual figures, oldest first, in millions of its reporting currency.
-
-        `latest` holds the trailing-twelve-month figures (or the latest year) used by
-        `valuation`. source_url links each year's filing.
-        """
-        return read(lambda store: financials_of(store, slug, years))
-
-    @server.tool(annotations=_READ)
-    def prices(slug: str, days: int = 90) -> dict[str, object]:
-        """Daily closes and volumes for the last `days` calendar days, in the quote currency."""
-        days = max(1, min(days, settings.price_history_days))
-        return read(lambda store: price_history(store, slug, days))
 
     @server.tool(annotations=_READ)
     def gaps() -> list[dict[str, object]]:

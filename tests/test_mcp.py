@@ -16,14 +16,19 @@ from wl import mcp_server
 from wl.mcp_server import (
     MAX_QUERY_ROWS,
     TABLES,
+    UI_CDN,
+    VIEWS,
     build_server,
+    chart_of,
     describe_tables,
     financials_of,
     gap_list,
     list_companies,
     price_history,
     run_query,
+    ui_html,
     valuation_of,
+    view_uri,
 )
 from wl.pipeline import Job, RunReport
 from wl.store import Store
@@ -146,6 +151,7 @@ async def test_server_lists_the_tools_and_answers_from_the_marts(served: Setting
         assert tools == {
             "describe", "companies", "valuation", "financials", "prices", "gaps", "query",
             "refresh", "lookup_company", "add_company", "update_company", "remove_company",
+            "chart",
         }  # fmt: skip
         result = await client.call_tool("financials", {"slug": "acme"})
         assert result.structured_content is not None
@@ -234,3 +240,63 @@ async def test_refresh_needs_a_watchlist(settings: Settings) -> None:
     async with Client(build_server(settings)) as client:
         result = await client.call_tool("refresh", {})
     assert "missing.yaml not found" in error_text(result)
+
+
+# ---------------------------------------------------------------------- charts (MCP Apps)
+SCATTER: dict[str, object] = {
+    "mark": "point",
+    "encoding": {"x": {"field": "slug"}, "y": {"field": "pe_ttm", "type": "quantitative"}},
+}
+
+
+def test_chart_draws_only_the_queried_rows(loaded: Store) -> None:
+    sneaky: dict[str, object] = {
+        **SCATTER,
+        "data": {"url": "https://example.com/x.csv"},
+        "datasets": {"a": [{"slug": "made-up"}]},
+    }
+    result = chart_of(loaded, "SELECT slug, pe_ttm FROM valuation ORDER BY slug", sneaky, "P/E")
+    spec = result["spec"]
+    assert isinstance(spec, dict)
+    assert spec["data"] == {"values": result["rows"]}
+    assert "datasets" not in spec
+    assert [row["slug"] for row in rows(result["rows"])] == ["acme", "euro-co"]
+    assert (result["title"], result["truncated"]) == ("P/E", False)
+
+
+@pytest.mark.parametrize(
+    ("sql", "spec", "message"),
+    [
+        ("SELECT 1 AS n", {"encoding": {}}, "needs a Vega-Lite mark"),
+        ("DELETE FROM raw_fx", SCATTER, "single SELECT"),
+    ],
+)
+def test_chart_refuses_bad_specs_and_statements(
+    loaded: Store, sql: str, spec: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ToolError, match=message):
+        chart_of(loaded, sql, spec, None)
+
+
+def test_every_view_composes_with_its_script() -> None:
+    for view in VIEWS:
+        html = ui_html(view)
+        assert "/* VIEW */" not in html
+        assert "async function render(data)" in html
+        assert f"{UI_CDN}/npm/vega-embed@" in html
+
+
+@pytest.mark.anyio
+async def test_server_binds_the_views_to_their_tools(served: Settings) -> None:
+    async with Client(build_server(served)) as client:
+        tools = {tool.name: tool.meta or {} for tool in (await client.list_tools()).tools}
+        bound = {name: meta["ui"]["resourceUri"] for name, meta in tools.items() if "ui" in meta}
+        assert bound == {view: view_uri(view) for view in VIEWS}
+        resource = (await client.read_resource(view_uri("valuation"))).contents[0]
+        assert resource.mime_type == "text/html;profile=mcp-app"
+        assert resource.meta == {"ui": {"csp": {"resourceDomains": [UI_CDN]}}}
+        drawn = await client.call_tool(
+            "chart", {"sql": "SELECT slug FROM companies", "spec": SCATTER}
+        )
+        assert drawn.structured_content is not None
+        assert len(rows(drawn.structured_content["rows"])) == 2

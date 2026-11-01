@@ -100,6 +100,7 @@ like "which companies have net cash and trade below 10× EV/EBITDA?".
 | `gaps` | figures missing from each company's latest fiscal year |
 | `describe` | the tables and views, their grain, units and columns |
 | `query` | one read-only DuckDB `SELECT`, at most 500 rows |
+| `chart` | a `SELECT` plus a Vega-Lite spec: draws any chart from the query's rows |
 | `refresh` | runs `wl refresh` (all or one job) and returns its report |
 | `lookup_company` | searches the SEC ticker list and GLEIF for a company's CIK, LEI, ISINs and fiscal year end |
 | `add_company` | adds an entry, fetches its data and publishes it (see below) |
@@ -114,6 +115,19 @@ a minute or two. If its prices cannot be fetched, usually a wrong ticker or ISIN
 undone and Claude gets the reason. Edits keep your comments and layout, and the previous version
 is saved as `watchlist.yaml.bak`. A `financials: manual` company still needs its
 `financials/<slug>.yaml`; the result says so.
+
+**Charts.** In Claude Desktop, `prices`, `financials` and `valuation` render as charts in the
+conversation, through [MCP Apps](https://modelcontextprotocol.io/specification/draft/extensions/apps):
+- a price line with 1M/3M/1Y ranges;
+- revenue bars with the operating margin, and net income against FCF, with a TTM bar for 10-Q
+  filers;
+- a sortable valuation table with one ratio drawn across all companies.
+
+For anything else ("P/E against FCF yield as a scatter"), Claude calls `chart`. The server runs
+the query, and the chart shows only those rows, so Claude never types the numbers. Desktop asks
+once before it shows a server's views. The views load their scripts (the MCP Apps client and
+Vega-Embed) from cdn.jsdelivr.net and cannot fetch anything else. Claude Code does not draw
+them and gets the same results as text.
 
 Every read opens its own read-only connection and closes it again, so `just refresh` in a
 terminal still works while Claude is connected. `query` runs on a connection that cannot write
