@@ -2,14 +2,16 @@ set dotenv-load := true
 
 default: check
 
-# Install dependencies (including dev tools) from the lockfile
+# Install dependencies (including dev tools) from the lockfiles
 sync:
     uv sync --locked --all-extras
+    pnpm --dir ui install --frozen-lockfile
 
 # Format code
 fmt:
     uv run ruff format .
     uv run ruff check --fix .
+    pnpm --dir ui fmt
 
 # Everything CI runs, in the same order
 check:
@@ -18,6 +20,11 @@ check:
     uv run basedpyright
     -uv run ty check
     uv run pytest
+    pnpm --dir ui check
+
+# Build the chart views (ui/) into src/wl/ui, where the MCP server serves them
+ui:
+    pnpm --dir ui build
 
 test *args:
     uv run pytest {{args}}

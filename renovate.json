@@ -4,6 +4,7 @@
   "schedule": ["before 6am on monday"],
   "packageRules": [
     { "matchManagers": ["pep621"], "groupName": "python dependencies" },
+    { "matchManagers": ["npm"], "groupName": "ui dependencies" },
     { "matchManagers": ["github-actions"], "groupName": "github actions" }
   ],
   "lockFileMaintenance": { "enabled": true }

@@ -11,9 +11,12 @@
   declared in `external_models.yaml` (a test checks it against `store.py`).
 - MCP tools live in `src/wl/mcp_server.py` as plain functions over a `Store`; the server opens a
   read-only store per call. Only `refresh` and the list tools (`wl.live`) write.
-- Chart views (MCP Apps) live in `src/wl/ui/`: `base.html` plus one script per view, which
-  builds its Vega-Lite spec from the tool's existing result and never fetches data. `chart`
-  data always comes from `run_query`. Tool results must stay usable as text.
+- Chart views (MCP Apps) live in `ui/` (React, strict TypeScript, pnpm). `just ui` builds one
+  self-contained page into `src/wl/ui/index.html` (gitignored); the server serves it for every
+  view with `<html data-view>`. Each view in `ui/src/views/<view>/` parses the tool's existing
+  result with a zod schema (keep it in step with the tool) and builds its Vega-Lite spec in a
+  tested `spec.ts`; views never fetch data. `chart` data always comes from `run_query`. Tool
+  results must stay usable as text. `pnpm check` in `ui/` must pass too (`just check` runs it).
 - `watchlist.yaml` is written only by `wl.watchlist_file`, which edits entry blocks as text and
   checks the result against the intended list; tests point `watchlist_path` at a tmp file.
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.

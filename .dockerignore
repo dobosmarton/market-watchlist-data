@@ -1,0 +1,10 @@
+.git
+.venv
+**/node_modules
+data
+exports
+src/wl/ui
+.env
+watchlist.yaml
+watchlist.yaml.bak
+financials

@@ -1,0 +1,118 @@
+/* host style variables (MCP Apps) with fallbacks for hosts that send none */
+:root {
+  color-scheme: light dark;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: var(--font-text-sm-size, 14px);
+  line-height: var(--font-text-sm-line-height, 1.4);
+  color: var(--color-text-primary, CanvasText);
+  background: transparent;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  padding: 12px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+h1 {
+  font-size: var(--font-heading-sm-size, 14px);
+  font-weight: var(--font-weight-semibold, 600);
+  margin: 0;
+}
+
+.muted {
+  color: var(--color-text-tertiary, GrayText);
+  font-size: var(--font-text-xs-size, 12px);
+}
+
+.error {
+  color: var(--color-text-danger, #b00020);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.chart {
+  width: 100%;
+}
+
+.segmented {
+  display: inline-flex;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+  border: var(--border-width-regular, 1px) solid var(--color-border-secondary, #8884);
+  border-radius: var(--border-radius-md, 8px);
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 4px 10px;
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: var(--border-width-regular, 1px) solid var(--color-border-secondary, #8884);
+}
+
+button[aria-pressed="true"] {
+  background: var(--color-background-inverse, CanvasText);
+  color: var(--color-text-inverse, Canvas);
+}
+
+button.ghost {
+  border: var(--border-width-regular, 1px) solid var(--color-border-secondary, #8884);
+  border-radius: var(--border-radius-md, 8px);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  margin-top: 12px;
+}
+
+th,
+td {
+  padding: 4px 6px;
+  text-align: right;
+  border-bottom: var(--border-width-regular, 1px) solid var(--color-border-tertiary, #8882);
+  white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+  white-space: normal;
+}
+
+th {
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--color-text-secondary, inherit);
+}
+
+.sort {
+  font-weight: inherit;
+  padding: 0;
+  min-height: 0;
+}

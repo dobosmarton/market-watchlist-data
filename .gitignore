@@ -14,4 +14,7 @@ exports/
 watchlist.yaml
 watchlist.yaml.bak
 .watchlist.yaml.tmp
-financials/
+/financials/
+node_modules/
+# built by `just ui` from ui/
+src/wl/ui/

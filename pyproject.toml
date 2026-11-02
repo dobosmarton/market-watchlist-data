@@ -43,6 +43,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/wl"]
+artifacts = ["src/wl/ui/"]  # the chart views, built from ui/ and ignored by git
 
 # ---------------------------------------------------------------- ruff
 [tool.ruff]

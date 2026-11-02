@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import duckdb
 import httpx
 from mcp.server import MCPServer
-from mcp.server.apps import Apps, ResourceCsp
+from mcp.server.apps import Apps
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
@@ -58,12 +58,16 @@ TABLES = {
     "except price and market_cap_quote (quote currency); full units",
 }
 
-# MCP Apps views (src/wl/ui): base.html plus one script per view, drawn with Vega-Lite in hosts
-# that render apps (Claude Desktop); other clients get the same results as text
-UI_DIR = Path(__file__).parent / "ui"
+# MCP Apps views: one self-contained page, built from ui/ by `just ui`, drawn in hosts that
+# render apps (Claude Desktop); other clients get the same results as text
+UI_PAGE = Path(__file__).parent / "ui" / "index.html"
 VIEWS = ("prices", "financials", "valuation", "chart")
-UI_CDN = "https://cdn.jsdelivr.net"  # the only origin the views load scripts from
-_VIEW_SLOT = "/* VIEW */"
+_HTML_TAG = '<html lang="en">'
+_NOT_BUILT = """<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+<p style="font: 14px system-ui, sans-serif">The chart views are not built: run
+<code>just ui</code> in the watchlist-data folder, then restart the app.</p></html>
+"""
 _SPEC_ROOTS = ("mark", "layer", "concat", "hconcat", "vconcat", "facet", "repeat")
 
 _INSTRUCTIONS = """\
@@ -196,13 +200,15 @@ def chart_of(store: Store, sql: str, spec: dict[str, object], title: str | None)
     return {**result, "title": title, "spec": {**drawn, "data": {"values": result["rows"]}}}
 
 
-def ui_html(view: str) -> str:
-    """Compose the shared app shell with one view's script."""
-    base = (UI_DIR / "base.html").read_text(encoding="utf-8")
-    if base.count(_VIEW_SLOT) != 1:
-        msg = f"base.html must hold exactly one {_VIEW_SLOT}"
+def ui_html(view: str, page: Path = UI_PAGE) -> str:
+    """Return the built page, told which view to draw, or a note to build it when it is missing."""
+    if not page.exists():
+        return _NOT_BUILT
+    html = page.read_text(encoding="utf-8")
+    if html.count(_HTML_TAG) != 1:
+        msg = f"{page} must hold exactly one {_HTML_TAG}"
         raise ValueError(msg)
-    return base.replace(_VIEW_SLOT, (UI_DIR / f"{view}.js").read_text(encoding="utf-8"))
+    return html.replace(_HTML_TAG, f'<html lang="en" data-view="{view}">')
 
 
 def view_uri(view: str) -> str:
@@ -248,12 +254,8 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
     lock = threading.RLock()  # re-entrant: a change reads its result back under the lock
     apps = Apps()
     for view in VIEWS:
-        apps.add_html_resource(
-            view_uri(view),
-            ui_html(view),
-            name=f"{view} view",
-            csp=ResourceCsp(resource_domains=[UI_CDN]),  # no connect domains: it cannot fetch
-        )
+        # no CSP domains: the page inlines its scripts and cannot fetch or load anything
+        apps.add_html_resource(view_uri(view), ui_html(view), name=f"{view} view")
 
     def read[T](tool: Callable[[Store], T]) -> T:
         with lock:

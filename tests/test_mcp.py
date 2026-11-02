@@ -16,7 +16,6 @@ from wl import mcp_server
 from wl.mcp_server import (
     MAX_QUERY_ROWS,
     TABLES,
-    UI_CDN,
     VIEWS,
     build_server,
     chart_of,
@@ -278,12 +277,18 @@ def test_chart_refuses_bad_specs_and_statements(
         chart_of(loaded, sql, spec, None)
 
 
-def test_every_view_composes_with_its_script() -> None:
+def test_the_page_is_told_which_view_to_draw(tmp_path: Path) -> None:
+    page = tmp_path / "index.html"
+    page.write_text('<!doctype html>\n<html lang="en"><div id="root"></div></html>')
     for view in VIEWS:
-        html = ui_html(view)
-        assert "/* VIEW */" not in html
-        assert "async function render(data)" in html
-        assert f"{UI_CDN}/npm/vega-embed@" in html
+        assert f'<html lang="en" data-view="{view}">' in ui_html(view, page)
+    page.write_text("<!doctype html>\n<html><div id='root'></div></html>")
+    with pytest.raises(ValueError, match="exactly one"):
+        ui_html("prices", page)
+
+
+def test_an_unbuilt_page_says_how_to_build_it(tmp_path: Path) -> None:
+    assert "just ui" in ui_html("prices", tmp_path / "index.html")
 
 
 @pytest.mark.anyio
@@ -294,7 +299,7 @@ async def test_server_binds_the_views_to_their_tools(served: Settings) -> None:
         assert bound == {view: view_uri(view) for view in VIEWS}
         resource = (await client.read_resource(view_uri("valuation"))).contents[0]
         assert resource.mime_type == "text/html;profile=mcp-app"
-        assert resource.meta == {"ui": {"csp": {"resourceDomains": [UI_CDN]}}}
+        assert not resource.meta  # no CSP domains: the page cannot load or fetch anything
         drawn = await client.call_tool(
             "chart", {"sql": "SELECT slug FROM companies", "spec": SCATTER}
         )

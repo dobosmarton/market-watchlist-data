@@ -125,9 +125,10 @@ conversation, through [MCP Apps](https://modelcontextprotocol.io/specification/d
 
 For anything else ("P/E against FCF yield as a scatter"), Claude calls `chart`. The server runs
 the query, and the chart shows only those rows, so Claude never types the numbers. Desktop asks
-once before it shows a server's views. The views load their scripts (the MCP Apps client and
-Vega-Embed) from cdn.jsdelivr.net and cannot fetch anything else. Claude Code does not draw
-them and gets the same results as text.
+once before it shows a server's views. The views are one self-contained page built from `ui/`
+by `just ui`; it loads nothing from the network and cannot fetch
+anything. Until it is built, Desktop shows a note saying so. Claude Code does not draw the
+views and gets the same results as text.
 
 Every read opens its own read-only connection and closes it again, so `just refresh` in a
 terminal still works while Claude is connected. `query` runs on a connection that cannot write
@@ -154,10 +155,12 @@ Use the absolute path to `uv` (`which uv`) if Desktop cannot find it.
 ## Quick start
 
 ```sh
-# needs uv (https://docs.astral.sh/uv/) and just (brew install just)
+# needs uv (https://docs.astral.sh/uv/), just (brew install just), and Node 24 with pnpm
+# for the chart views
 cp .env.example .env        # set WL_SEC_USER_AGENT to "<your name> <your email>"
 cp watchlist.example.yaml watchlist.yaml   # then edit it to list your companies
-just sync                   # Python 3.13 + all dependencies from uv.lock
+just sync                   # Python 3.13 + dependencies from uv.lock, and ui/ from pnpm-lock.yaml
+just ui                     # build the chart views Claude Desktop shows
 uv run wl companies         # what is tracked and where each company's data comes from
 just resolve-ids            # print missing LEIs (needed for ESEF filings), paste into watchlist.yaml
 just refresh                # fx, prices, financials → data/watchlist.duckdb
@@ -236,13 +239,19 @@ src/wl/
   live.py               list changes that fetch, publish, and roll back on failure
   watchlist_file.py     edits watchlist.yaml in place, keeping its comments and layout
   cli.py                `wl` command
+  ui/                   the built chart views (gitignored; `just ui` writes them)
 tests/                  offline tests with recorded fixtures
+ui/                     chart views for Claude Desktop: React, TypeScript, Vega-Lite, Vite
+  src/host.tsx          connects to the MCP host: tool result and theme
+  src/components/       header, segmented control, Vega chart
+  src/views/<view>/     per tool: schema.ts (zod), spec.ts (Vega-Lite specs, tested), the view
 ```
 
 ## Development
 
 `just check` runs what CI runs: Ruff format and lint (all rules), basedpyright in strict mode,
-Astral ty (informational while in beta), and pytest with coverage ≥ 85%. CI also builds the
+Astral ty (informational while in beta), and pytest with coverage ≥ 85%; then, in `ui/`,
+Biome (format and lint), `tsc` in strict mode, Vitest, and the Vite build. CI also builds the
 Docker image. Install the git hooks once with `uvx prek install`. Renovate keeps dependencies
 and the lockfile current.
 
