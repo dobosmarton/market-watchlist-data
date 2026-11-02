@@ -11,7 +11,7 @@ export function PricesView({ data }: { data: Prices }) {
   const spec = useMemo(() => priceSpec(bars, data.ccy), [bars, data.ccy]);
   return (
     <>
-      <Header title={data.slug} subtitle={summary(bars, data.ccy)}>
+      <Header title={data.name} subtitle={summary(bars, data.ccy)}>
         <Segmented label="Range" options={RANGES} value={days} onChange={setDays} />
       </Header>
       <VegaChart spec={spec} />

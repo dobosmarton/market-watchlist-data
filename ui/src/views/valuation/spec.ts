@@ -1,6 +1,7 @@
 import type { TopLevelSpec } from "vega-lite";
 import type { Options } from "../../components/Segmented";
 import type { Palette } from "../../theme";
+import { notMeaningful } from "./ratios";
 import type { Company } from "./schema";
 
 export type Metric = "pe_ttm" | "ev_ebitda" | "fcf_yield" | "nd_ebitda" | "op_margin_pct";
@@ -25,12 +26,34 @@ export function robustDomain(numbers: number[]): [number, number] {
   return [Math.min(0, Math.max(lowest, low - pad)), Math.max(0, Math.min(highest, high + pad))];
 }
 
+export function metricTitle(metric: Metric): string {
+  return METRICS.find(([key]) => key === metric)?.[1] ?? metric;
+}
+
+export interface Point {
+  name: string;
+  basis: string | null;
+  value: number;
+}
+
+/** The bars to draw for one metric, and the companies whose value means nothing (n/m). */
+export function metricPoints(
+  companies: Company[],
+  metric: Metric,
+): { points: Point[]; notMeaningful: string[] } {
+  const points: Point[] = [];
+  const skipped: string[] = [];
+  for (const { name, basis, [metric]: value } of companies) {
+    if (value === null) continue;
+    if (notMeaningful(metric, value)) skipped.push(name);
+    else points.push({ name, basis, value });
+  }
+  return { points, notMeaningful: skipped };
+}
+
 /** One metric as a horizontal bar per company, largest first. */
-export function metricSpec(companies: Company[], metric: Metric, palette: Palette): TopLevelSpec {
-  const title = METRICS.find(([key]) => key === metric)?.[1] ?? metric;
-  const values = companies.flatMap(({ name, basis, [metric]: value }) =>
-    value === null ? [] : [{ name, basis, value }],
-  );
+export function metricSpec(values: Point[], metric: Metric, palette: Palette): TopLevelSpec {
+  const title = metricTitle(metric);
   const domain = robustDomain(values.map((point) => point.value));
   const [low, high] = domain;
   const order = [...values].sort((a, b) => b.value - a.value).map((point) => point.name);

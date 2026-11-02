@@ -89,6 +89,7 @@ def test_companies_need_a_watchlist_file(settings: Settings) -> None:
 def test_valuation_filters_slugs_and_rejects_unknown_ones(loaded: Store) -> None:
     (acme,) = valuation_of(loaded, ["acme"])
     assert (acme["mcap_bn"], acme["pe_ttm"], acme["basis"]) == (5.0, 50.0, "annual")
+    assert acme["mcap_eur_bn"] == 4.55  # 5bn USD at 1.1 USD per EUR, rounded
     assert len(valuation_of(loaded, None)) == 2
     with pytest.raises(ToolError, match="unknown slug 'xyz'; known: acme, euro-co"):
         valuation_of(loaded, ["xyz"])
@@ -108,7 +109,7 @@ def test_financials_are_in_millions_with_the_latest_figures(loaded: Store) -> No
 
 def test_prices_cover_the_last_days(loaded: Store) -> None:
     result = price_history(loaded, "acme", days=1)
-    assert result["ccy"] == "USD"
+    assert (result["name"], result["ccy"]) == ("ACME", "USD")
     assert result["bars"] == [{"date": "2026-10-27", "close": 50.0, "volume": None}]
     assert len(rows(price_history(loaded, "acme", days=90)["bars"])) == 2
 

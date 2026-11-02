@@ -34,12 +34,13 @@ def test_fin_annual(loaded: Store) -> None:
 
 
 def test_valuation(loaded: Store) -> None:
-    (mcap, pe, ev_ebitda, fcf_yield, nd_ebitda, pos) = one(
+    (mcap, mcap_eur, pe, ev_ebitda, fcf_yield, nd_ebitda, pos) = one(
         loaded,
-        "SELECT market_cap, pe_ttm, ev_ebitda, fcf_yield_pct, net_debt_ebitda, wk52_pos "
-        "FROM valuation WHERE slug = 'acme'",
+        "SELECT market_cap, market_cap_eur, pe_ttm, ev_ebitda, fcf_yield_pct, net_debt_ebitda, "
+        "wk52_pos FROM valuation WHERE slug = 'acme'",
     )
     assert mcap == pytest.approx(5e9)  # 50 USD x 100m shares
+    assert mcap_eur == pytest.approx(5e9 / 1.1)  # at 1.1 USD per EUR
     assert pe == pytest.approx(50.0)
     assert ev_ebitda == pytest.approx((5e9 + 5e8) / 3e8)
     assert fcf_yield == pytest.approx(8.0)
@@ -59,6 +60,18 @@ def test_untagged_debt_counts_as_zero_once_cash_is_reported(loaded: Store) -> No
 def test_no_enterprise_value_without_a_balance_sheet(loaded: Store) -> None:
     loaded.replace_facts("acme", acme_facts(without="CashAndCashEquivalentsAtCarryingValue"))
     assert one(loaded, "SELECT enterprise_value FROM valuation WHERE slug = 'acme'") == (None,)
+
+
+def test_no_net_debt_to_ebitda_when_ebitda_is_negative(loaded: Store) -> None:
+    loss = us_fact(
+        "OperatingIncomeLoss", -300_000_000, start=date(2024, 1, 1), end=date(2024, 12, 31)
+    )
+    loaded.replace_facts("acme", [*acme_facts(without="OperatingIncomeLoss"), loss])
+    ev_ebitda, nd_ebitda = one(
+        loaded, "SELECT ev_ebitda, net_debt_ebitda FROM valuation WHERE slug = 'acme'"
+    )
+    assert ev_ebitda == pytest.approx((5e9 + 5e8) / -2e8)  # EBITDA -300m + 100m D&A
+    assert nd_ebitda is None  # its sign would read as net cash
 
 
 def test_gaps_list_missing_concepts_and_companies_without_financials(loaded: Store) -> None:
@@ -205,6 +218,7 @@ def test_export(loaded: Store, tmp_path: Path) -> None:
     valuation = json.loads((tmp_path / "valuation.json").read_text())
     acme = next(r for r in valuation if r["slug"] == "acme")
     assert acme["mcap_bn"] == 5.0
+    assert acme["mcap_eur_bn"] == 4.55  # 5bn USD at 1.1 USD per EUR, rounded
     assert acme["price_date"] == "2026-10-27"
     euro_co = next(r for r in valuation if r["slug"] == "euro-co")
     assert euro_co["price"] is None

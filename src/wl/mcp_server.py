@@ -55,7 +55,7 @@ TABLES = {
     "otherwise the latest fiscal year (basis 'annual'); reporting currency, full units",
     "fin_gaps": "companies whose latest fiscal year misses concepts (missing is a list)",
     "valuation": "one row per company: ratios on fin_ttm; money in the reporting currency "
-    "except price and market_cap_quote (quote currency); full units",
+    "except price and market_cap_quote (quote currency) and market_cap_eur (EUR); full units",
 }
 
 # MCP Apps views: one self-contained page, built from ui/ by `just ui`, drawn in hosts that
@@ -170,9 +170,10 @@ def price_history(store: Store, slug: str, days: int) -> Row:
         "ORDER BY date",
         [slug, slug, days],
     )
-    (company,) = store.query("SELECT quote_ccy FROM companies WHERE slug = ?", [slug])
+    (company,) = store.query("SELECT name, quote_ccy FROM companies WHERE slug = ?", [slug])
     return {
         "slug": slug,
+        "name": company["name"],
         "ccy": company["quote_ccy"],
         "bars": [_cleaned(bar) for bar in bars],
     }
@@ -274,14 +275,17 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
 
     @apps.tool(resource_uri=view_uri("valuation"), annotations=_READ)
     def valuation(slugs: list[str] | None = None) -> list[dict[str, object]]:
-        """Price, 52-week range, market cap (bn, quote currency) and valuation ratios.
+        """Price, 52-week range, market cap and valuation ratios.
 
         Also draws them: a sortable table and one ratio as bars across the companies. Use it to
         compare or chart valuations.
 
-        Ratios use trailing twelve months where basis is 'ttm', else the last annual report
-        (fin_period_end). nd_ebitda below zero means net cash; debt_reported false means no
-        borrowings were tagged and debt counts as zero.
+        Market cap is in billions: mcap_bn in the quote currency, mcap_eur_bn in EUR (compare
+        sizes with this one). Ratios use trailing twelve months where basis is 'ttm', else the
+        last annual report (fin_period_end). A P/E or EV/EBITDA below zero (a loss, negative
+        EBITDA) is not meaningful. nd_ebitda below zero means net cash; it is empty when
+        EBITDA is not positive. debt_reported false means no borrowings were tagged and debt
+        counts as zero.
         """
         return read(lambda store: valuation_of(store, slugs))
 
@@ -311,13 +315,17 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
     def chart(sql: str, spec: dict[str, object], title: str | None = None) -> dict[str, object]:
         """Draw a custom chart: run one SELECT (as in `query`) and plot it with a Vega-Lite spec.
 
-        Not for a company's price (use `prices`), its revenue, margins or earnings (use
-        `financials`), or one ratio across companies (use `valuation`): those draw their own
-        charts. Use it for anything else, such as a scatter of two ratios.
+        Not for one company's price over time (use `prices`, with `days` for the period), its
+        revenue, margins or earnings (use `financials`), or one ratio across companies (use
+        `valuation`): those draw their own charts. Use it for anything else, such as a scatter
+        of two ratios or several companies' prices together.
         `spec` is a Vega-Lite v6 spec without data: the query's rows become its data, so use
-        the query's column names as fields. Money in the marts is in full units of each company's
-        reporting currency, so compare ratios across companies, not amounts. Ratios have
-        outliers (negative or very high P/E): filter them in the SQL so the rest stays readable.
+        the query's column names as fields. Take column names from `describe`; some differ from
+        the `valuation` tool's keys (fcf_yield_pct, net_debt_ebitda, grp, market_cap_eur).
+        Money in the marts is in full units of each company's reporting currency (market_cap_eur
+        is in EUR), so compare ratios across companies, not amounts. Ratios have outliers
+        (negative or very high P/E): filter them in the SQL so the rest stays readable. Draw
+        lines straight, without `interpolate`: smoothing shows values that never happened.
         """
         return read(lambda store: chart_of(store, sql, spec, title))
 
@@ -399,8 +407,10 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
     def query(sql: str) -> dict[str, object]:
         """Run one read-only DuckDB SELECT over the tables `describe` lists (max 500 rows).
 
-        Unqualified names resolve to the raw tables and the marts. Money is in full units of
-        the reporting currency unless a column says otherwise.
+        Unqualified names resolve to the raw tables and the marts. Take column names from
+        `describe`; some differ from the `valuation` tool's keys (fcf_yield_pct,
+        net_debt_ebitda, grp). Money is in full units of the reporting currency unless a column
+        says otherwise.
         """
         return read(lambda store: run_query(store, sql))
 

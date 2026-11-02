@@ -7,7 +7,7 @@ export const companySchema = z.object({
   name: z.string(),
   ccy: z.string().nullable(),
   price: ratio,
-  mcap_bn: ratio,
+  mcap_eur_bn: ratio,
   pe_ttm: ratio,
   ev_ebitda: ratio,
   fcf_yield: ratio,

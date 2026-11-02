@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FALLBACK } from "../../theme";
 import type { Company } from "./schema";
-import { metricSpec, robustDomain } from "./spec";
+import { metricPoints, metricSpec, robustDomain } from "./spec";
 import { COLUMNS, cell, nextSort, sortCompanies } from "./table";
 
 function company(slug: string, changes: Partial<Company> = {}): Company {
@@ -10,7 +10,7 @@ function company(slug: string, changes: Partial<Company> = {}): Company {
     name: slug.toUpperCase(),
     ccy: "USD",
     price: 10,
-    mcap_bn: 1,
+    mcap_eur_bn: 1,
     pe_ttm: 15,
     ev_ebitda: 8,
     fcf_yield: 5,
@@ -40,7 +40,8 @@ describe("robustDomain", () => {
 
 it("draws only the companies that have the metric, largest first", () => {
   const companies = [company("a", { pe_ttm: 5 }), company("b", { pe_ttm: null }), company("c")];
-  const spec = metricSpec(companies, "pe_ttm", FALLBACK);
+  const { points } = metricPoints(companies, "pe_ttm");
+  const spec = metricSpec(points, "pe_ttm", FALLBACK);
   expect(spec.data).toEqual({
     values: [
       { name: "A", basis: "ttm", value: 5 },
@@ -48,6 +49,35 @@ it("draws only the companies that have the metric, largest first", () => {
     ],
   });
   expect(spec).toMatchObject({ encoding: { y: { sort: ["C", "A"] } } });
+});
+
+describe("negative multiples", () => {
+  const loss = company("a", { pe_ttm: -482, ev_ebitda: -3, fcf_yield: -2 });
+  const companies = [loss, company("b", { pe_ttm: 20 })];
+
+  it("are named as n/m instead of drawn", () => {
+    const { points, notMeaningful } = metricPoints(companies, "pe_ttm");
+    expect(points.map((point) => point.name)).toEqual(["B"]);
+    expect(notMeaningful).toEqual(["A"]);
+    expect(metricPoints(companies, "ev_ebitda").notMeaningful).toEqual(["A"]);
+  });
+
+  it("leave other ratios below zero drawn", () => {
+    expect(metricPoints(companies, "fcf_yield").points.map((point) => point.value)).toEqual([
+      -2, 5,
+    ]);
+  });
+
+  it("read n/m in the table and sort with the missing values", () => {
+    const pe = COLUMNS.find((column) => column.key === "pe_ttm");
+    if (!pe) throw new Error("columns changed");
+    expect(cell(loss, pe)).toBe("n/m");
+    const all = [...companies, company("c", { pe_ttm: null })];
+    for (const ascending of [true, false]) {
+      const slugs = sortCompanies(all, { key: "pe_ttm", ascending }).map((row) => row.slug);
+      expect(slugs[0]).toBe("b");
+    }
+  });
 });
 
 describe("table", () => {

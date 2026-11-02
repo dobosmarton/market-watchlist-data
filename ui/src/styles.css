@@ -35,6 +35,10 @@ h1 {
   font-size: var(--font-text-xs-size, 12px);
 }
 
+.note {
+  margin: 4px 0 0;
+}
+
 .error {
   color: var(--color-text-danger, #b00020);
 }

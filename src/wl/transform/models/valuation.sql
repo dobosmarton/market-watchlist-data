@@ -5,7 +5,8 @@ MODEL (
 
 -- Valuation on trailing-twelve-month figures where 10-Qs allow it, else the latest fiscal year
 -- (marts.fin_ttm, see its basis column). Market cap uses the latest diluted weighted shares,
--- with the price converted to the reporting currency with ECB rates (EUR cross).
+-- with the price converted to the reporting currency with ECB rates (EUR cross);
+-- market_cap_eur puts every company in EUR so sizes compare across currencies.
 -- Companies without borrowings usually tag no debt at all, so missing debt counts as zero once
 -- cash is reported; debt_reported keeps that visible. Without cash there is no net debt or EV.
 WITH priced AS (
@@ -14,6 +15,7 @@ WITH priced AS (
         s.price, s.price_date, s.wk52_low, s.wk52_high,
         -- price converted from quote to reporting currency: price * EUR->rep / EUR->quote
         s.price * fr.eur_rate / fq.eur_rate AS price_rep,
+        s.price / fq.eur_rate AS price_eur,
         y.basis, y.period_end AS fin_period_end,
         y.revenue, y.op_income, y.net_income, y.fcf, y.ebitda,
         y.cash, y.debt, y.shares_diluted, y.op_margin_pct,
@@ -29,10 +31,12 @@ SELECT
     *,
     price_rep * shares_diluted AS market_cap,
     price * shares_diluted AS market_cap_quote,
+    price_eur * shares_diluted AS market_cap_eur,
     price_rep * shares_diluted + net_debt AS enterprise_value,
     (price_rep * shares_diluted) / nullif(net_income, 0) AS pe_ttm,
     (price_rep * shares_diluted + net_debt) / nullif(ebitda, 0) AS ev_ebitda,
     fcf / nullif(price_rep * shares_diluted, 0) * 100 AS fcf_yield_pct,
-    net_debt / nullif(ebitda, 0) AS net_debt_ebitda,
+    -- only for positive EBITDA: below zero it flips the sign, so net debt would read as net cash
+    CASE WHEN ebitda > 0 THEN net_debt / ebitda END AS net_debt_ebitda,
     (price - wk52_low) / nullif(wk52_high - wk52_low, 0) * 100 AS wk52_pos
 FROM priced

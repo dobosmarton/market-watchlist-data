@@ -35,7 +35,8 @@ it("plots the closes in the quote currency", () => {
 });
 
 it("reads the tool result and drops columns the view does not use", () => {
-  const result = { slug: "acme", ccy: "USD", bars: [{ date: "2026-01-01", close: 1, volume: 5 }] };
+  const bar = { date: "2026-01-01", close: 1, volume: 5 };
+  const result = { slug: "acme", name: "Acme", ccy: "USD", bars: [bar] };
   expect(pricesSchema.parse(result).bars).toEqual([{ date: "2026-01-01", close: 1 }]);
-  expect(pricesSchema.safeParse({ slug: "acme", bars: [] }).success).toBe(false);
+  expect(pricesSchema.safeParse({ slug: "acme", ccy: "USD", bars: [] }).success).toBe(false);
 });
