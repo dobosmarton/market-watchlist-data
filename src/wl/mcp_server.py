@@ -8,6 +8,7 @@ file free for ``wl refresh`` in another process. Watchlist changes go through ``
 from __future__ import annotations
 
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -180,7 +181,7 @@ def price_history(store: Store, slug: str, days: int) -> Row:
 
 
 def gap_list(store: Store) -> list[Row]:
-    return [_cleaned(row) for row in store.gaps()]
+    return [_cleaned(row) for row in store.gaps(datetime.now(UTC).date())]
 
 
 def run_query(store: Store, sql: str) -> Row:
@@ -400,7 +401,12 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
 
     @server.tool(annotations=_READ)
     def gaps() -> list[dict[str, object]]:
-        """Companies whose latest fiscal year misses figures (period_end null: no years at all)."""
+        """Companies whose latest fiscal year misses figures or is out of date.
+
+        "out of date": the year ended over 16 months ago, so a newer annual report should exist
+        but the source has none (add it by hand in financials/<slug>.yaml, or switch source).
+        period_end null: no years at all.
+        """
         return read(gap_list)
 
     @server.tool(annotations=_READ)

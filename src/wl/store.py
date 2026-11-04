@@ -15,6 +15,7 @@ from wl.concepts import concept_rows
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Sequence
+    from datetime import date
     from types import TracebackType
 
     from pydantic import BaseModel
@@ -171,10 +172,33 @@ class Store:
             [slug, limit],
         )
 
-    def gaps(self) -> list[Row]:
-        """Companies whose latest fiscal year misses concepts (``period_end`` None: no years)."""
+    def gaps(self, today: date) -> list[Row]:
+        """Companies whose latest fiscal year misses concepts or is out of date.
+
+        A year is out of date once it ended over 16 months before ``today``: the next one has
+        ended and its annual report is due within four months. ``period_end`` None: no years.
+        """
         return self.query(
-            "SELECT slug, period_end, array_to_string(missing, ', ') AS missing FROM marts.fin_gaps"
+            """
+            WITH latest AS (
+                SELECT slug, max(period_end) AS period_end FROM marts.fin_annual GROUP BY slug
+            ),
+            dated AS (
+                SELECT slug, period_end < ?::DATE - INTERVAL 16 MONTH AS outdated FROM latest
+            )
+            SELECT c.slug, coalesce(g.period_end, l.period_end) AS period_end,
+                   array_to_string(list_concat(
+                       coalesce(g.missing, []::VARCHAR[]),
+                       CASE WHEN d.outdated THEN ['out of date'] ELSE []::VARCHAR[] END
+                   ), ', ') AS missing
+            FROM main.companies AS c
+            LEFT JOIN marts.fin_gaps AS g USING (slug)
+            LEFT JOIN latest AS l USING (slug)
+            LEFT JOIN dated AS d USING (slug)
+            WHERE g.slug IS NOT NULL OR d.outdated
+            ORDER BY c.slug
+            """,
+            [today],
         )
 
     # ------------------------------------------------------------------ concept map

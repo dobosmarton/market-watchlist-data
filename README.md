@@ -97,7 +97,7 @@ like "which companies have net cash and trade below 10× EV/EBITDA?".
 | `valuation` | price, 52-week range, market cap and ratios, as in `valuation.json` |
 | `financials` | one company's annual figures in millions of its reporting currency, plus the TTM figures `valuation` uses |
 | `prices` | daily closes and volumes for the last N days (a year by default) |
-| `gaps` | figures missing from each company's latest fiscal year |
+| `gaps` | figures missing from each company's latest fiscal year, or a year out of date |
 | `describe` | the tables and views, their grain, units and columns |
 | `query` | one read-only DuckDB `SELECT`, at most 500 rows |
 | `chart` | a `SELECT` plus a Vega-Lite spec: draws any chart from the query's rows |
@@ -181,7 +181,7 @@ on a Mac and on a VPS.
 | `wl refresh [all\|fx\|prices\|financials]` | fetch data, then rebuild the marts |
 | `wl export` | write the dashboard JSON files |
 | `wl mcp` | serve the data to Claude over MCP (stdio) |
-| `wl gaps` | concepts missing from each company's latest fiscal year |
+| `wl gaps` | concepts missing from each company's latest fiscal year, and years out of date |
 | `wl companies` | list companies with their identifiers and sources |
 | `wl resolve-ids` | look up missing LEIs on GLEIF for ESEF companies |
 | `wl unmapped <slug>` | the company's most frequent tags that `concepts.py` does not map yet |
@@ -293,8 +293,10 @@ and the price providers. What remains worth knowing:
 - **LEIs**: ESEF companies without an LEI are skipped until you paste in the output of
   `just resolve-ids`. When GLEIF has no ISIN mapping, search GLEIF by the legal name.
 - **Gaps**: after a refresh, `just gaps` lists the concepts missing from each company's
-  latest year. `wl unmapped <slug>` shows candidate tags to add to `concepts.py`; tags under
-  a company's own prefix that many filers share can be mapped with `ANY_TAXONOMY`.
+  latest year, and marks that year out of date once the next annual report is overdue
+  (16 months after the year ended). `wl unmapped <slug>` shows candidate tags to add to
+  `concepts.py`; tags under a company's own prefix that many filers share can be mapped with
+  `ANY_TAXONOMY`.
 - **Share counts**: most ESEF filers tag diluted EPS but not the share count, so
   `fin_annual` derives it as net income / diluted EPS. Market caps use the diluted weighted
   average of the latest quarter for 10-Q filers and of the last annual report for everyone
@@ -303,7 +305,10 @@ and the price providers. What remains worth knowing:
   missing debt as zero once cash is reported and exports `debt_reported` so the dashboard
   can mark it; `just gaps` still lists it. Lease liabilities are not counted as debt.
 - **filings.xbrl.org lags**: it can take months after publication for an annual report to
-  appear there, so some companies' latest year trails the others.
+  appear there, and some never do (it has added no Luxembourg filing since May 2025). When
+  `just gaps` marks a year out of date, switch a company that also files a 20-F to `sec`, or
+  type the missing year into `financials/<slug>.yaml`; filed figures replace it once they
+  appear.
 - **Ratio basis**: `pe_ttm` and the other ratios are trailing twelve months only for
   companies that file 10-Qs (`basis = ttm`). Everyone else, including 20-F/40-F, ESEF and
   manual filers, is valued on the last annual report (`basis = annual`). Within a TTM row, a

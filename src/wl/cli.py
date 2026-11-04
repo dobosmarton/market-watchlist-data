@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated
 
@@ -79,11 +80,11 @@ def export() -> None:
 
 @app.command()
 def gaps() -> None:
-    """List concepts missing from each company's latest fiscal year."""
+    """List concepts missing from each company's latest fiscal year, and years out of date."""
     settings = Settings()
     _build(settings)
     with Store.open(settings) as store:
-        rows = store.gaps()
+        rows = store.gaps(datetime.now(UTC).date())
     for row in rows:
         period_end = row["period_end"]
         detail = row["missing"] if period_end else "no annual financials"

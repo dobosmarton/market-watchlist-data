@@ -17,6 +17,8 @@ from wl.store import Store
 
 from .conftest import acme_facts, make_company, one, us_fact
 
+_IN_2025 = date(2025, 6, 1)  # the fixtures' FY2024 is the latest year a report is due for
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
@@ -76,13 +78,23 @@ def test_no_net_debt_to_ebitda_when_ebitda_is_negative(loaded: Store) -> None:
 
 def test_gaps_list_missing_concepts_and_companies_without_financials(loaded: Store) -> None:
     loaded.replace_facts("acme", acme_facts(without="LongTermDebtNoncurrent"))
-    gaps = {row["slug"]: (row["period_end"], row["missing"]) for row in loaded.gaps()}
+    gaps = {row["slug"]: (row["period_end"], row["missing"]) for row in loaded.gaps(_IN_2025)}
     assert gaps["acme"] == (date(2024, 12, 31), "debt")
     assert gaps["euro-co"][0] is None
 
 
 def test_complete_companies_have_no_gaps(loaded: Store) -> None:
-    assert "acme" not in {row["slug"] for row in loaded.gaps()}
+    assert "acme" not in {row["slug"] for row in loaded.gaps(_IN_2025)}
+
+
+def test_gaps_flag_a_year_once_the_next_report_is_due(loaded: Store) -> None:
+    def acme_gap(today: date) -> object:
+        return {row["slug"]: row["missing"] for row in loaded.gaps(today)}.get("acme")
+
+    assert acme_gap(date(2026, 4, 30)) is None  # the FY2025 report is due by the end of April
+    assert acme_gap(date(2026, 5, 1)) == "out of date"
+    loaded.replace_facts("acme", acme_facts(without="LongTermDebtNoncurrent"))
+    assert acme_gap(date(2026, 5, 1)) == "debt, out of date"
 
 
 def test_valuation_converts_quote_to_reporting_currency(store: Store) -> None:
