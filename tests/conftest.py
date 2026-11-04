@@ -151,6 +151,16 @@ def acme_facts(*, without: str | None = None) -> list[Fact]:
     return [fact for fact in facts if fact.tag != without]
 
 
+def acme_prior_year() -> list[Fact]:
+    """ACME's fiscal 2023: revenue 1.6bn at a 25% operating margin, net income 50m."""
+    y0, y1 = date(2023, 1, 1), date(2023, 12, 31)
+    return [
+        us_fact("Revenues", 1_600_000_000, start=y0, end=y1),
+        us_fact("OperatingIncomeLoss", 400_000_000, start=y0, end=y1),
+        us_fact("NetIncomeLoss", 50_000_000, start=y0, end=y1),
+    ]
+
+
 @pytest.fixture
 def loaded(store: Store, watchlist: Watchlist) -> Store:
     """ACME with one fiscal year of facts, two price bars, and EUR/USD."""

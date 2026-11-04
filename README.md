@@ -95,6 +95,7 @@ like "which companies have net cash and trade below 10× EV/EBITDA?".
 |---|---|
 | `companies` | the watchlist entries from `watchlist.yaml`, optionally one group |
 | `valuation` | price, 52-week range, market cap and ratios, as in `valuation.json` |
+| `signals` | what deserves attention: price and fundamental events and conditions per company |
 | `financials` | one company's annual figures in millions of its reporting currency, plus the TTM figures `valuation` uses |
 | `prices` | daily closes and volumes for the last N days (a year by default) |
 | `gaps` | figures missing from each company's latest fiscal year, or a year out of date |
@@ -115,6 +116,17 @@ a minute or two. If its prices cannot be fetched, usually a wrong ticker or ISIN
 undone and Claude gets the reason. Edits keep your comments and layout, and the previous version
 is saved as `watchlist.yaml.bak`. A `financials: manual` company still needs its
 `financials/<slug>.yaml`; the result says so.
+
+**Signals.** Ask "what's new in my watchlist?" and Claude starts from `signals`: one row per
+thing worth a look, computed from the stored data whenever the marts build.
+- price: the close crossing its 200-day average, a golden or death cross, or a new 52-week
+  high or low (dated events); a drawdown of 20% or more, a monthly move of 15% or more, or
+  volume twice its usual level (conditions as of the latest close);
+- fundamental: revenue down 5% or up 15%, or the operating margin moving by 2 points or more,
+  in the latest fiscal year.
+
+The thresholds sit at the top of `transform/models/signals.sql`, and the numbers behind them
+are in the `price_signals` and `fundamental_signals` views.
 
 **Charts.** In Claude Desktop, `prices`, `financials` and `valuation` render as charts in the
 conversation, through [MCP Apps](https://modelcontextprotocol.io/specification/draft/extensions/apps):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -25,12 +26,15 @@ from wl.mcp_server import (
     list_companies,
     price_history,
     run_query,
+    signals_of,
     ui_html,
     valuation_of,
     view_uri,
 )
 from wl.pipeline import Job, RunReport
 from wl.store import Store
+
+from .conftest import acme_facts, acme_prior_year
 
 if TYPE_CHECKING:
     from mcp.server import MCPServer
@@ -114,6 +118,21 @@ def test_prices_cover_the_last_days(loaded: Store) -> None:
     assert len(rows(price_history(loaded, "acme", days=90)["bars"])) == 2
 
 
+def test_signals_filter_by_company_category_and_age(loaded: Store) -> None:
+    loaded.replace_facts("acme", [*acme_facts(), *acme_prior_year()])
+    today = date(2026, 11, 3)
+    rows = signals_of(loaded, None, 30, None, today)
+    assert {(r["name"], r["kind"], r["standing"]) for r in rows} == {
+        ("ACME", "revenue_growing", True),
+        ("ACME", "margin_down", True),
+    }
+    assert rows[0]["date"] == "2024-12-31"  # standing conditions come whatever their age
+    assert signals_of(loaded, None, 30, "price", today) == []
+    assert signals_of(loaded, ["euro-co"], 30, None, today) == []
+    with pytest.raises(ToolError, match="unknown slug 'xyz'"):
+        signals_of(loaded, ["xyz"], 30, None, today)
+
+
 def test_gaps_name_companies_without_financials(loaded: Store) -> None:
     assert gap_list(loaded)[-1]["slug"] == "euro-co"
 
@@ -151,7 +170,7 @@ async def test_server_lists_the_tools_and_answers_from_the_marts(served: Setting
         assert tools == {
             "describe", "companies", "valuation", "financials", "prices", "gaps", "query",
             "refresh", "lookup_company", "add_company", "update_company", "remove_company",
-            "chart",
+            "chart", "signals",
         }  # fmt: skip
         result = await client.call_tool("financials", {"slug": "acme"})
         assert result.structured_content is not None

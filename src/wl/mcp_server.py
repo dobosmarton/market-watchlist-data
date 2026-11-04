@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import duckdb
 import httpx
@@ -30,6 +30,7 @@ from wl.watchlist_file import WatchlistEditError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import date
 
     from wl.settings import Settings
     from wl.store import Row
@@ -57,7 +58,15 @@ TABLES = {
     "fin_gaps": "companies whose latest fiscal year misses concepts (missing is a list)",
     "valuation": "one row per company: ratios on fin_ttm; money in the reporting currency "
     "except price and market_cap_quote (quote currency) and market_cap_eur (EUR); full units",
+    "price_signals": "one row per company as of its latest close (quote currency): returns, "
+    "50/200-day averages and their last crosses, 52-week range and drawdown, volatility, "
+    "volume against usual, watchlist rank; *_bars_ago counts trading days",
+    "fundamental_signals": "one row per company: latest fiscal year's revenue and net income "
+    "growth, operating margin change (points), FCF margin, 3-year revenue CAGR",
+    "signals": "one row per notable event or standing condition: category, kind, title, value "
+    "(the `signals` tool reads it)",
 }
+SignalCategory = Literal["price", "fundamental"]
 
 # MCP Apps views: one self-contained page, built from ui/ by `just ui`, drawn in hosts that
 # render apps (Claude Desktop); other clients get the same results as text
@@ -74,8 +83,9 @@ _SPEC_ROOTS = ("mark", "layer", "concat", "hconcat", "vconcat", "facet", "repeat
 _INSTRUCTIONS = """\
 A personal stock watchlist: prices, ECB FX rates, and figures from annual reports (SEC, ESEF
 or hand-entered) for a list of companies, identified by slug.
-Start with `companies` or `valuation`. `financials` gives one company's history in millions
-of its reporting currency. For anything else, call `describe` and then `query` with DuckDB SQL.
+Start with `companies` or `valuation`; for what changed or deserves attention, `signals`.
+`financials` gives one company's history in millions of its reporting currency. For anything
+else, call `describe` and then `query` with DuckDB SQL.
 To add a company, find its identifiers with `lookup_company`, then call `add_company`;
 `update_company` and `remove_company` change the list. Change the list only when asked.
 Data is as fresh as the last refresh: check price_date and fin_period_end before calling it
@@ -178,6 +188,27 @@ def price_history(store: Store, slug: str, days: int) -> Row:
         "ccy": company["quote_ccy"],
         "bars": [_cleaned(bar) for bar in bars],
     }
+
+
+def signals_of(
+    store: Store,
+    slugs: list[str] | None,
+    days: int,
+    category: SignalCategory | None,
+    today: date,
+) -> list[Row]:
+    """Events from the last `days` days and every standing condition, events first."""
+    for slug in slugs or ():
+        _check_slug(store, slug)
+    rows = store.query(
+        "SELECT slug, name, date, category, kind, title, value, standing, url, source "
+        "FROM signals WHERE (standing OR date > ?::DATE - ?::INTEGER) "
+        "AND (?::VARCHAR IS NULL OR category = ?) "
+        "AND (?::VARCHAR[] IS NULL OR list_contains(?, slug)) "
+        "ORDER BY standing, date DESC, slug, kind",
+        [today, max(days, 1), category, category, slugs, slugs],
+    )
+    return [_cleaned(row) for row in rows]
 
 
 def gap_list(store: Store) -> list[Row]:
@@ -398,6 +429,27 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
         """
         change(lambda: live.remove_company(settings, slug))
         return {"removed": slug}
+
+    @server.tool(annotations=_READ)
+    def signals(
+        slugs: list[str] | None = None,
+        days: int = 30,
+        category: SignalCategory | None = None,
+    ) -> list[dict[str, object]]:
+        """List what deserves attention: notable events and standing conditions per company.
+
+        Start here for "what's new", "what changed" or "anything to watch?". Categories:
+        price (200-day average crosses, golden/death crosses, new 52-week highs or lows,
+        drawdowns of 20%+, monthly moves of 15%+, volume spikes) and fundamental (revenue
+        growth or decline, operating margin change in the latest fiscal year).
+        Each row has a kind, a one-line title and the value behind it. standing true means a
+        condition that holds as of the latest data and is always returned; false means an
+        event on its date, returned when within the last `days` days. Check the data's date
+        before calling it current. The numbers behind them: price_signals and
+        fundamental_signals (via `query`).
+        """
+        today = datetime.now(UTC).date()
+        return read(lambda store: signals_of(store, slugs, days, category, today))
 
     @server.tool(annotations=_READ)
     def gaps() -> list[dict[str, object]]:

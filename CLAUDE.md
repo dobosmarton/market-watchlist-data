@@ -17,6 +17,9 @@
   result with a zod schema (keep it in step with the tool) and builds its Vega-Lite spec in a
   tested `spec.ts`; views never fetch data. `chart` data always comes from `run_query`. Tool
   results must stay usable as text. `pnpm check` in `ui/` must pass too (`just check` runs it).
+- Signals: `marts.signals` has one row per event or standing condition, built from views such
+  as `price_signals` and `fundamental_signals`; the `signals` tool reads it. A new signal
+  source adds a `UNION ALL` branch there; thresholds live in its `limits` CTE.
 - `watchlist.yaml` is written only by `wl.watchlist_file`, which edits entry blocks as text and
   checks the result against the intended list; tests point `watchlist_path` at a tmp file.
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.
