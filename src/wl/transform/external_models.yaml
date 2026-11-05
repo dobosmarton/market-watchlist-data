@@ -37,6 +37,40 @@
     source: VARCHAR
     source_url: VARCHAR
     fetched_at: TIMESTAMP
+- name: main.raw_filings
+  columns:
+    slug: VARCHAR
+    source: VARCHAR
+    id: VARCHAR
+    date: DATE
+    form: VARCHAR
+    items: VARCHAR
+    period: DATE
+    title: VARCHAR
+    url: VARCHAR
+    fetched_at: TIMESTAMP
+- name: main.raw_insider_trades
+  columns:
+    slug: VARCHAR
+    source: VARCHAR
+    id: VARCHAR
+    line: INTEGER
+    filed: DATE
+    trade_date: DATE
+    person: VARCHAR
+    role: VARCHAR
+    code: VARCHAR
+    acquired: BOOLEAN
+    shares: DOUBLE
+    price: DOUBLE
+    ccy: VARCHAR
+    owned_after: DOUBLE
+    planned: BOOLEAN
+    derivative: BOOLEAN
+    amendment: BOOLEAN
+    security: VARCHAR
+    url: VARCHAR
+    fetched_at: TIMESTAMP
 - name: main.companies
   columns:
     slug: VARCHAR

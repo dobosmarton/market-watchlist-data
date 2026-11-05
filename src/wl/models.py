@@ -51,6 +51,44 @@ class Fact(_Record):
     source_url: str
 
 
+class Filing(_Record):
+    """A regulatory filing about a company: an SEC form, later also exchange announcements."""
+
+    slug: str
+    source: str
+    id: str  # unique within the source: the SEC accession number
+    date: date  # filed or published
+    form: str  # SEC form type (8-K, 10-Q, SCHEDULE 13G, ...)
+    items: str | None = None  # 8-K item numbers, e.g. "2.02,9.01"
+    period: date | None = None  # the period a report covers
+    title: str
+    url: str
+
+
+class InsiderTrade(_Record):
+    """One transaction an insider reported, such as a line of an SEC Form 4."""
+
+    slug: str
+    source: str
+    id: str  # the filing's id; with `line`, unique within the source
+    line: int
+    filed: date
+    trade_date: date
+    person: str
+    role: str  # officer title, Director, 10% owner
+    code: str  # SEC transaction code: P buy, S sale, A award, M exercise, F tax, G gift ...
+    acquired: bool
+    shares: float
+    price: float | None
+    ccy: str
+    owned_after: float | None
+    planned: bool  # under a Rule 10b5-1 trading plan
+    derivative: bool  # options, units and the like rather than the shares themselves
+    amendment: bool  # from an amended filing (4/A), which restates the original's trades
+    security: str
+    url: str
+
+
 @dataclass(frozen=True)
 class DateRange:
     """Inclusive range of calendar days."""

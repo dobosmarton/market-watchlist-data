@@ -5,8 +5,9 @@
   ty, pytest with coverage ≥ 85%). All must pass; ty is informational.
 - Tests never touch the network: mock HTTP with respx and keep payloads in `tests/fixtures/`.
 - Sources return typed records from `wl.models`; storage and SQL never see raw API payloads.
-- Monetary values stay in the company's reporting currency in `raw_facts` and `fin_annual`;
-  currency conversion happens only in `src/wl/transform/models/valuation.sql` using ECB rates.
+- Monetary values stay in the company's reporting currency in `raw_facts` and `fin_annual`
+  (the trade's currency in `raw_insider_trades`); currency conversion happens only in the
+  marts (`valuation.sql`, `insider_trades.sql`) using ECB rates.
 - Marts are SQLMesh view models in `src/wl/transform/models/`; the raw tables they read are
   declared in `external_models.yaml` (a test checks it against `store.py`).
 - MCP tools live in `src/wl/mcp_server.py` as plain functions over a `Store`; the server opens a
@@ -19,7 +20,9 @@
   results must stay usable as text. `pnpm check` in `ui/` must pass too (`just check` runs it).
 - Signals: `marts.signals` has one row per event or standing condition, built from views such
   as `price_signals` and `fundamental_signals`; the `signals` tool reads it. A new signal
-  source adds a `UNION ALL` branch there; thresholds live in its `limits` CTE.
+  source adds a `UNION ALL` branch there; thresholds live in its `limits` CTE. Filings and
+  insider trades (`sources/edgar.py`) are generic records with a `source` column, so other
+  countries' insider and announcement sources can write the same raw tables.
 - `watchlist.yaml` is written only by `wl.watchlist_file`, which edits entry blocks as text and
   checks the result against the intended list; tests point `watchlist_path` at a tmp file.
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.

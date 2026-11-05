@@ -26,6 +26,7 @@ class Settings(BaseSettings):
 
     http_timeout_s: float = 30.0
     price_history_days: int = 400
+    filings_history_days: int = 365  # SEC filings and insider trades
 
     @property
     def db_path(self) -> Path:

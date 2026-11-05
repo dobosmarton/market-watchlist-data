@@ -31,6 +31,8 @@ class What(StrEnum):
     FX = Job.FX.value
     PRICES = Job.PRICES.value
     FINANCIALS = Job.FINANCIALS.value
+    FILINGS = Job.FILINGS.value
+    INSIDERS = Job.INSIDERS.value
 
 
 @app.callback()
@@ -50,8 +52,8 @@ def _load_watchlist(settings: Settings) -> Watchlist:
 def refresh(what: Annotated[What, typer.Argument()] = What.ALL) -> None:
     """Fetch fresh data into the local store; the marts read it from there."""
     settings = Settings()
-    job = None if what is What.ALL else Job(what)
-    for report in run_refresh(settings, _load_watchlist(settings), job):
+    jobs = None if what is What.ALL else [Job(what)]
+    for report in run_refresh(settings, _load_watchlist(settings), jobs):
         typer.echo("\n".join(report.lines()))
 
 

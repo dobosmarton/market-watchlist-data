@@ -239,17 +239,19 @@ async def call_tool(server: MCPServer, name: str) -> CallToolResult:
 async def test_refresh_runs_the_pipeline_job(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls: list[Job | None] = []
+    calls: list[list[Job] | None] = []
 
-    def fake_refresh(_settings: Settings, watchlist: Watchlist, job: Job | None) -> list[RunReport]:
-        calls.append(job)
+    def fake_refresh(
+        _settings: Settings, watchlist: Watchlist, jobs: list[Job] | None
+    ) -> list[RunReport]:
+        calls.append(jobs)
         return [RunReport(Job.PRICES, rows=2, ok=[c.slug for c in watchlist.companies[:1]])]
 
     monkeypatch.setattr(mcp_server, "run_refresh", fake_refresh)
     settings.watchlist_path = EXAMPLE_WATCHLIST
     async with Client(build_server(settings)) as client:
         result = await client.call_tool("refresh", {"what": "prices"})
-    assert calls == [Job.PRICES]
+    assert calls == [[Job.PRICES]]
     assert result.structured_content == {"result": ["prices: 2 rows, 1 ok"]}
 
 

@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from wl.models import PriceBar
+from wl.models import InsiderTrade, PriceBar
+from wl.sources import edgar
 
-from .conftest import acme_facts, acme_prior_year
+from .conftest import acme_facts, acme_prior_year, fixture_bytes
 
 if TYPE_CHECKING:
     from wl.config import Watchlist
@@ -138,3 +139,64 @@ def test_one_year_has_nothing_to_compare(listed: Store) -> None:
     (row,) = listed.query("SELECT * FROM fundamental_signals WHERE slug = 'acme'")
     assert (row["revenue_growth_pct"], row["op_margin_change_pp"]) == (None, None)
     assert signal_kinds(listed) == {}
+
+
+def form4(name: str, accession: str, filed: date) -> list[InsiderTrade]:
+    entry = edgar.Entry(
+        cik=1234567, accession=accession, filed=filed, form="4", items="", period=None,
+        document=f"xslF345X06/{name}.xml",
+    )  # fmt: skip
+    return edgar.parse_form4("acme", entry, fixture_bytes(f"{name}.xml"))
+
+
+def test_insider_buys_and_large_sales(loaded: Store) -> None:
+    sales = form4("form4_sales", "0001234567-26-000009", date(2026, 10, 15))
+    small = sales[0].model_copy(
+        update={"id": "0001234567-26-000011", "person": "POE SAM", "shares": 100.0}
+    )
+    loaded.upsert_insider_trades([
+        *sales, small, *form4("form4_buy", "0001234567-26-000010", date(2026, 10, 20)),
+    ])  # fmt: skip
+    rows = loaded.query("SELECT * FROM signals WHERE category = 'insider' ORDER BY kind")
+    assert [row["kind"] for row in rows] == ["insider_buy", "insider_sale"]  # POE's is small
+    buy, sale = rows
+    assert buy["title"] == "DOE JANE (Director) bought 1,000 shares (about EUR 45k) at 49.50 USD"
+    assert buy["value"] == pytest.approx(45_000)  # 49,500 USD at 1.1 to the euro
+    assert (buy["date"], buy["standing"]) == (date(2026, 10, 16), False)
+    # 3,000 at 100 and 2,000 at 101 are 502,000 USD; the shares withheld for tax are no sale
+    assert sale["title"] == (
+        "ROE RICHARD (Chief Financial Officer) sold 5,000 shares (about EUR 456k) "
+        "in October 2026, under a 10b5-1 plan"
+    )
+    assert sale["date"] == date(2026, 10, 14)
+    assert str(sale["url"]).endswith("/000123456726000009/xslF345X06/form4_sales.xml")
+    (trade,) = loaded.query("SELECT * FROM insider_trades WHERE code = 'F'")
+    assert (trade["trade_type"], trade["value"]) == ("tax withholding", 50_500)
+
+
+def test_filings_become_signals(loaded: Store) -> None:
+    entries = edgar.parse_submissions(
+        1234567, fixture_bytes("edgar_submissions.json"), date(2025, 11, 1)
+    )
+    loaded.upsert_filings(edgar.filings_of("acme", entries))
+    rows = loaded.query("SELECT * FROM signals WHERE category = 'filing' ORDER BY date DESC")
+    # the 6-K stays in raw_filings only: a foreign issuer files any press release as one
+    assert [(row["kind"], row["title"]) for row in rows] == [
+        ("current_report", "8-K: results; officer or director change"),
+        ("new_report", "10-Q for the period ended 2026-06-30"),
+        ("major_holder", "SCHEDULE 13G/A: a passive holder of 5% or more"),
+    ]
+    assert str(rows[0]["url"]).endswith("/000123456726000008/acme-8k.htm")
+
+
+def test_an_amended_form4_replaces_the_trades_it_restates(loaded: Store) -> None:
+    original = form4("form4_buy", "0001234567-26-000010", date(2026, 10, 20))
+    amended = [
+        trade.model_copy(update={"id": "0001234567-26-000012", "amendment": True, "price": 55.0})
+        for trade in original
+    ]
+    loaded.upsert_insider_trades([*original, *amended])
+    rows = loaded.query("SELECT id, price FROM insider_trades WHERE NOT derivative")
+    assert [(row["id"], row["price"]) for row in rows] == [("0001234567-26-000012", 55.0)]
+    (buy,) = loaded.query("SELECT title FROM signals WHERE kind = 'insider_buy'")
+    assert str(buy["title"]).endswith("at 55.00 USD")

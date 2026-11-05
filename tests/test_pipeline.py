@@ -325,13 +325,18 @@ def test_one_failing_company_does_not_stop_the_others(store: Store, error: Excep
     assert (report.failed, report.ok) == ({"c0": "yahoo changed"}, ["c1"])
 
 
-def test_report_lines_list_failed_and_skipped_companies(store: Store) -> None:
+def test_report_lines_list_failed_companies_and_skipped_ones_by_reason(store: Store) -> None:
     job = _prices_job(store, {"yahoo": _Raises(ProviderError("down"))})
-    report = job.run(_watchlist("yahoo", "twelvedata"))
+    companies = (
+        make_company("c0", prices="yahoo"), make_company("c1"),
+        make_company("c2", prices="euronext", mic="XAMS"), make_company("c3"),
+    )  # fmt: skip
+    report = job.run(Watchlist(companies=companies))
     assert report.lines() == [
-        "prices: 0 rows, 0 ok, 1 skipped, 1 failed (c0)",
+        "prices: 0 rows, 0 ok, 3 skipped, 1 failed (c0)",
         "  failed  c0: down",
-        "  skipped c1: no twelvedata provider configured",
+        "  skipped c1, c3: no twelvedata provider configured",
+        "  skipped c2: no euronext provider configured",
     ]
 
 
@@ -386,11 +391,10 @@ def test_refresh_for_some_companies_still_covers_every_currency(
     monkeypatch.setattr(pipeline, "build_jobs", recording_jobs)
     monkeypatch.setattr(pipeline, "build_marts", _no_rebuild)
     reports = pipeline.run_refresh(settings, watchlist, slugs=["euro-co"])
-    assert [r.job for r in reports] == [Job.FX, Job.PRICES, Job.FINANCIALS]
+    assert [r.job for r in reports] == list(Job)
     assert seen == {
         Job.FX: ["acme", "euro-co"],
-        Job.PRICES: ["euro-co"],
-        Job.FINANCIALS: ["euro-co"],
+        **{job: ["euro-co"] for job in list(Job)[1:]},
     }
     with Store.open(settings, read_only=True) as store:
         assert len(store.query("SELECT * FROM companies")) == 2  # the whole list is synced

@@ -14,7 +14,7 @@ from wl import watchlist_file
 from wl.config import load_watchlist
 from wl.export import write_exports
 from wl.marts import build_marts
-from wl.pipeline import Job, RunReport, run_refresh
+from wl.pipeline import CORE_JOBS, Job, RunReport, run_refresh
 from wl.store import Store
 
 if TYPE_CHECKING:
@@ -62,7 +62,7 @@ def _apply(
 ) -> Change:
     path = _existing(settings.watchlist_path)
     previous = edit(path, company)
-    reports = run_refresh(settings, load_watchlist(path), slugs=[company.slug])
+    reports = run_refresh(settings, load_watchlist(path), CORE_JOBS, slugs=[company.slug])
     problem = _price_problem(reports, company.slug)
     if problem and not force:
         watchlist_file.restore(path, previous)
@@ -112,7 +112,7 @@ def _forget(settings: Settings, slug: str) -> None:
 
 def _refetch(settings: Settings, slug: str) -> None:
     """Fetch a company's data again from its (restored) entry."""
-    run_refresh(settings, load_watchlist(settings.watchlist_path), slugs=[slug])
+    run_refresh(settings, load_watchlist(settings.watchlist_path), CORE_JOBS, slugs=[slug])
 
 
 def _export(settings: Settings) -> None:

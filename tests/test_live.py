@@ -16,7 +16,7 @@ from wl import live, watchlist_file
 from wl.config import load_watchlist
 from wl.mcp_server import build_server, lookup
 from wl.models import PriceBar
-from wl.pipeline import Job, RunReport
+from wl.pipeline import CORE_JOBS, Job, RunReport
 from wl.sources import gleif, sec
 from wl.store import Store
 
@@ -43,11 +43,11 @@ class FakeRefresh:
         self,
         settings: Settings,
         watchlist: Watchlist,
-        job: Job | None = None,
+        jobs: Collection[Job] | None = None,
         *,
         slugs: Collection[str] | None = None,
     ) -> list[RunReport]:
-        assert job is None
+        assert jobs == CORE_JOBS  # filings and insider trades wait for the next refresh
         chosen = [c.slug for c in watchlist.companies if slugs is None or c.slug in slugs]
         self.calls.append(chosen)
         prices = RunReport(Job.PRICES)

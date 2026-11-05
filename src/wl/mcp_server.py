@@ -65,8 +65,14 @@ TABLES = {
     "growth, operating margin change (points), FCF margin, 3-year revenue CAGR",
     "signals": "one row per notable event or standing condition: category, kind, title, value "
     "(the `signals` tool reads it)",
+    "raw_filings": "SEC filings of the last year per company (no Form 4s): form, 8-K items, "
+    "title, url",
+    "insider_trades": "one row per insider transaction (SEC Form 4 lines): person, role, "
+    "trade_type (buy, sale, award, exercise ...), shares, price, value and value_eur, "
+    "planned (10b5-1 plan), derivative (options and units, not shares); an amended filing "
+    "replaces the original's lines",
 }
-SignalCategory = Literal["price", "fundamental"]
+SignalCategory = Literal["price", "fundamental", "insider", "filing"]
 
 # MCP Apps views: one self-contained page, built from ui/ by `just ui`, drawn in hosts that
 # render apps (Claude Desktop); other clients get the same results as text
@@ -81,8 +87,8 @@ _NOT_BUILT = """<!doctype html>
 _SPEC_ROOTS = ("mark", "layer", "concat", "hconcat", "vconcat", "facet", "repeat")
 
 _INSTRUCTIONS = """\
-A personal stock watchlist: prices, ECB FX rates, and figures from annual reports (SEC, ESEF
-or hand-entered) for a list of companies, identified by slug.
+A personal stock watchlist: prices, ECB FX rates, figures from annual reports (SEC, ESEF or
+hand-entered), and SEC filings and insider trades for a list of companies, identified by slug.
 Start with `companies` or `valuation`; for what changed or deserves attention, `signals`.
 `financials` gives one company's history in millions of its reporting currency. For anything
 else, call `describe` and then `query` with DuckDB SQL.
@@ -252,7 +258,8 @@ def refresh_data(settings: Settings, job: Job | None) -> list[str]:
     if not settings.watchlist_path.exists():
         msg = f"{settings.watchlist_path} not found"
         raise ToolError(msg)
-    reports = run_refresh(settings, load_watchlist(settings.watchlist_path), job)
+    jobs = None if job is None else [job]
+    reports = run_refresh(settings, load_watchlist(settings.watchlist_path), jobs)
     return [line for report in reports for line in report.lines()]
 
 
@@ -440,13 +447,16 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
 
         Start here for "what's new", "what changed" or "anything to watch?". Categories:
         price (200-day average crosses, golden/death crosses, new 52-week highs or lows,
-        drawdowns of 20%+, monthly moves of 15%+, volume spikes) and fundamental (revenue
-        growth or decline, operating margin change in the latest fiscal year).
+        drawdowns of 20%+, monthly moves of 15%+, volume spikes), fundamental (revenue
+        growth or decline, operating margin change in the latest fiscal year), insider
+        (open-market buys, and sales per person and month from EUR 250k; value in EUR) and
+        filing (SEC 8-Ks with their items, new 10-K/10-Q/20-F/40-F reports, 13D/13G
+        5%-holder schedules; url links the filing).
         Each row has a kind, a one-line title and the value behind it. standing true means a
         condition that holds as of the latest data and is always returned; false means an
         event on its date, returned when within the last `days` days. Check the data's date
-        before calling it current. The numbers behind them: price_signals and
-        fundamental_signals (via `query`).
+        before calling it current. The detail behind them: price_signals,
+        fundamental_signals, insider_trades and raw_filings (via `query`).
         """
         today = datetime.now(UTC).date()
         return read(lambda store: signals_of(store, slugs, days, category, today))
@@ -474,9 +484,9 @@ def build_server(settings: Settings) -> MCPServer:  # noqa: C901, PLR0915  (a sm
 
     @server.tool(annotations=_REFRESH)
     def refresh(what: Job | None = None) -> list[str]:
-        """Fetch fresh fx, prices and/or financials over the network and rebuild the marts.
+        """Fetch fresh fx, prices, financials, filings and/or insider trades; rebuild the marts.
 
-        Takes about a minute and rewrites the local data. Only call it when the user asks for
+        Takes a minute or two and rewrites the local data. Only call it when the user asks for
         fresh data. Leave `what` empty to refresh everything.
         """
         with lock:

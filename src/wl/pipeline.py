@@ -16,9 +16,10 @@ from wl.config import Watchlist
 from wl.http import make_client
 from wl.log import get_logger
 from wl.marts import build_marts
-from wl.models import DateRange, Fact, PriceBar
+from wl.models import DateRange, Fact, Filing, InsiderTrade, PriceBar
 from wl.sources import fx
 from wl.sources.base import MissingIdentifierError, ProviderError
+from wl.sources.edgar import EdgarFilingsProvider, EdgarInsidersProvider
 from wl.sources.esef import EsefProvider
 from wl.sources.manual import ManualProvider, WithManualYears
 from wl.sources.prices import EuronextProvider, TwelveDataProvider, YahooProvider
@@ -40,6 +41,12 @@ class Job(StrEnum):
     FX = "fx"
     PRICES = "prices"
     FINANCIALS = "financials"
+    FILINGS = "filings"
+    INSIDERS = "insiders"
+
+
+# What a watchlist change fetches for its company; filings and insiders wait for a refresh.
+CORE_JOBS = (Job.FX, Job.PRICES, Job.FINANCIALS)
 
 
 @dataclass
@@ -59,11 +66,14 @@ class RunReport:
         return ", ".join(parts)
 
     def lines(self) -> list[str]:
-        """Render the summary, then one line per failed and skipped company."""
+        """Render the summary, a line per failed company and one per reason for skipping."""
+        skipped: dict[str, list[str]] = {}
+        for slug, reason in sorted(self.skipped.items()):
+            skipped.setdefault(reason, []).append(slug)
         return [
             self.summary(),
             *(f"  failed  {slug}: {reason}" for slug, reason in sorted(self.failed.items())),
-            *(f"  skipped {slug}: {reason}" for slug, reason in sorted(self.skipped.items())),
+            *(f"  skipped {', '.join(slugs)}: {reason}" for reason, slugs in skipped.items()),
         ]
 
 
@@ -134,22 +144,22 @@ def describe_error(exc: Exception) -> str:
 def run_refresh(
     settings: Settings,
     watchlist: Watchlist,
-    job: Job | None = None,
+    jobs: Collection[Job] | None = None,
     *,
     slugs: Collection[str] | None = None,
 ) -> list[RunReport]:
-    """Run one job, or all of them, then rebuild the marts once the store is closed.
+    """Run some jobs, or all of them, then rebuild the marts once the store is closed.
 
-    With ``slugs``, prices and financials are fetched for those companies only; FX still
-    covers every currency on the watchlist.
+    With ``slugs``, the per-company jobs cover those companies only; FX still covers every
+    currency on the watchlist.
     """
     chosen = watchlist
     if slugs is not None:
         chosen = Watchlist(companies=tuple(c for c in watchlist.companies if c.slug in slugs))
     with Store.open(settings) as store, make_client(settings) as client:
         store.sync_companies(watchlist.companies)
-        jobs = build_jobs(store, client, settings)
-        selected = jobs.items() if job is None else [(job, jobs[job])]
+        built = build_jobs(store, client, settings)
+        selected = built.items() if jobs is None else [(job, built[job]) for job in jobs]
         reports = [
             selected_job.run(watchlist if name is Job.FX else chosen)
             for name, selected_job in selected
@@ -178,10 +188,29 @@ def build_jobs(store: Store, client: httpx.Client, settings: Settings) -> dict[J
         },
         write=lambda company, facts: store.replace_facts(company.slug, facts),
     )
+    since = DateRange.last_days(settings.filings_history_days).start
+    filings = CompanyJob[Filing](
+        Job.FILINGS,
+        source_of=lambda _company: "sec",
+        providers={"sec": EdgarFilingsProvider(client, since)},
+        write=lambda _company, rows: store.upsert_filings(rows),
+    )
+    insiders = CompanyJob[InsiderTrade](
+        Job.INSIDERS,
+        source_of=lambda _company: "sec",
+        providers={
+            "sec": EdgarInsidersProvider(
+                client, since, known=lambda slug: store.insider_filing_ids(slug, "sec")
+            )
+        },
+        write=lambda _company, trades: store.upsert_insider_trades(trades),
+    )
     return {
         Job.FX: FxJob(fetch=partial(fx.fetch_rates, client, window), write=store.upsert_fx),
         Job.PRICES: prices,
         Job.FINANCIALS: financials,
+        Job.FILINGS: filings,
+        Job.INSIDERS: insiders,
     }
 
 

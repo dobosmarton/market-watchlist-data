@@ -16,10 +16,11 @@ watchlist.yaml                 companies, identifiers, and the data source for e
       ▼
 src/wl/sources/                Frankfurter (ECB FX), Twelve Data, Yahoo, Euronext, SEC EDGAR,
                                filings.xbrl.org, hand-entered financials/<slug>.yaml
-      │  typed records: FxRate, PriceBar, Fact
+      │  typed records: FxRate, PriceBar, Fact, Filing, InsiderTrade
       ▼
 raw_fx, raw_prices,            DuckDB file, or DuckLake (SQLite catalog + Parquet)
-raw_facts, companies
+raw_facts, raw_filings,
+raw_insider_trades, companies
       │  concept_map: US-GAAP, IFRS and manual tags → one concept set
       ▼
 marts.fin_annual,              SQLMesh view models in src/wl/transform/, built after
@@ -31,9 +32,10 @@ exports/valuation.json         read by the dashboard;  wl mcp: the same marts fo
 exports/financials.json
 ```
 
-1. **Refresh** (`wl refresh`) fetches FX, prices and financials company by company. If one
-   company fails, it is reported and the others still load. FX and prices are upserted;
-   financials are replaced in full for each company, since the sources return full history.
+1. **Refresh** (`wl refresh`) fetches FX, prices, financials, SEC filings and insider trades
+   company by company. If one company fails, it is reported and the others still load.
+   Financials are replaced in full for each company, since the sources return full history;
+   everything else is upserted, and only Form 4s not stored yet are fetched.
 2. **Marts** (`wl build`, also run by `refresh` and `export`). SQLMesh builds the views in the
    `marts` schema. `fin_annual` picks one value per concept and fiscal year (year-long periods only,
    in the reporting currency) and derives debt, operating margin, free cash flow and EBITDA.
@@ -123,10 +125,14 @@ thing worth a look, computed from the stored data whenever the marts build.
   high or low (dated events); a drawdown of 20% or more, a monthly move of 15% or more, or
   volume twice its usual level (conditions as of the latest close);
 - fundamental: revenue down 5% or up 15%, or the operating margin moving by 2 points or more,
-  in the latest fiscal year.
+  in the latest fiscal year;
+- insider (SEC filers): every open-market buy, and one person's open-market sales in a month
+  once they reach €250k, saying whether a 10b5-1 plan made them;
+- filing (SEC filers): each 8-K with its items named (results, officer change, deal ...), a
+  new 10-K, 10-Q, 20-F or 40-F, and 13D/13G filings by holders of 5% or more, with a link.
 
-The thresholds sit at the top of `transform/models/signals.sql`, and the numbers behind them
-are in the `price_signals` and `fundamental_signals` views.
+The thresholds sit at the top of `transform/models/signals.sql`, and the detail behind them is
+in the `price_signals`, `fundamental_signals` and `insider_trades` views and `raw_filings`.
 
 **Charts.** In Claude Desktop, `prices`, `financials` and `valuation` render as charts in the
 conversation, through [MCP Apps](https://modelcontextprotocol.io/specification/draft/extensions/apps):
@@ -175,11 +181,11 @@ just sync                   # Python 3.13 + dependencies from uv.lock, and ui/ f
 just ui                     # build the chart views Claude Desktop shows
 uv run wl companies         # what is tracked and where each company's data comes from
 just resolve-ids            # print missing LEIs (needed for ESEF filings), paste into watchlist.yaml
-just refresh                # fx, prices, financials → data/watchlist.duckdb
+just refresh                # fx, prices, financials, filings, insiders → data/watchlist.duckdb
 just export                 # exports/valuation.json, exports/financials.json
 ```
 
-`just refresh prices` (or `fx`, `financials`) runs one job. Explore the data with
+`just refresh prices` (or `fx`, `financials`, `filings`, `insiders`) runs one job. Explore the data with
 `duckdb data/watchlist.duckdb` and `SELECT * FROM valuation`.
 
 With Docker: `docker compose run --rm refresh`, then `docker compose run --rm export`. The
@@ -190,7 +196,7 @@ on a Mac and on a VPS.
 
 | Command | What it does |
 |---|---|
-| `wl refresh [all\|fx\|prices\|financials]` | fetch data, then rebuild the marts |
+| `wl refresh [all\|fx\|prices\|financials\|filings\|insiders]` | fetch data, then rebuild the marts |
 | `wl export` | write the dashboard JSON files |
 | `wl mcp` | serve the data to Claude over MCP (stdio) |
 | `wl gaps` | concepts missing from each company's latest fiscal year, and years out of date |
@@ -211,6 +217,7 @@ Settings come from environment variables or `.env`, all prefixed `WL_`:
 | `WL_WATCHLIST_PATH` | `watchlist.yaml` | |
 | `WL_MANUAL_DIR` | `financials` | hand-entered figures (`financials: manual`, or years a filer's filings lack) |
 | `WL_PRICE_HISTORY_DAYS` | `400` | days of price and FX history fetched on each refresh |
+| `WL_FILINGS_HISTORY_DAYS` | `365` | days of SEC filings and Form 4s fetched |
 | `WL_HTTP_TIMEOUT_S` | `30` | |
 
 ## Sources
@@ -219,6 +226,8 @@ Settings come from environment variables or `.env`, all prefixed `WL_`:
 |---|---|---|---|
 | FX | ECB reference rates via Frankfurter | all currencies on the watchlist | none |
 | SEC financials | SEC EDGAR company facts (10-K, 20-F, 40-F) | SEC filers, including foreign issuers filing 20-F or 40-F | none, User-Agent required |
+| SEC filings | EDGAR submissions: 8-K, 6-K, 10-K/Q, 20-F, 40-F, 13D/13G | companies with a CIK | none, User-Agent required |
+| Insider trades | EDGAR Form 4 XML, one request per new filing | US domestic filers (foreign issuers file no Form 4) | none, User-Agent required |
 | ESEF financials | ESEF filings via filings.xbrl.org | EU/EEA issuers that file in ESEF | none |
 | US prices | Twelve Data `time_series` | US listings | free API key (8 req/min, 800/day) |
 | European prices | Yahoo via yfinance (`yahoo` extra) | any exchange Yahoo covers | none; unofficial, personal use |
@@ -237,7 +246,7 @@ watchlist.example.yaml  example companies; copy to watchlist.yaml (gitignored) a
 src/wl/
   config.py             typed watchlist model (Pydantic)
   settings.py           WL_* environment settings
-  models.py             records passed from sources to storage: FxRate, PriceBar, Fact
+  models.py             records passed from sources to storage: FxRate, PriceBar, Fact, ...
   sources/              one module per source; each returns typed records
     base.py             the Provider protocol every per-company source implements
   http.py               shared httpx client with retries
@@ -270,8 +279,9 @@ and the lockfile current.
 A few rules hold the design together:
 
 - Sources return typed records from `wl.models`; storage and SQL never see raw API payloads.
-- Money stays in the company's reporting currency in `raw_facts` and `fin_annual`. Currency
-  conversion happens only in `transform/models/valuation.sql`, using ECB rates.
+- Money stays in the company's reporting currency in `raw_facts` and `fin_annual`, and in the
+  trade's currency in `raw_insider_trades`. Currency conversion happens only in the marts
+  (`valuation.sql`, `insider_trades.sql`), using ECB rates.
 - A company's data source is chosen in `watchlist.yaml`, never by branching on slugs in code.
 - Tests never touch the network: HTTP is mocked with respx and payloads live in `tests/fixtures/`.
 
@@ -325,6 +335,11 @@ and the price providers. What remains worth knowing:
   companies that file 10-Qs (`basis = ttm`). Everyone else, including 20-F/40-F, ESEF and
   manual filers, is valued on the last annual report (`basis = annual`). Within a TTM row, a
   figure the 10-Qs do not tag keeps its annual value.
+- **Insider trades**: the first `refresh insiders` fetches a year of Form 4s, one request
+  each at most ten a second (about two minutes for 300); later runs fetch only new ones. An
+  amended Form 4 (4/A) replaces the original's lines for the same person and day. Most US
+  insider sales run under 10b5-1 plans set up months ahead, so they say less than a buy.
+  Values in EUR use the latest ECB rate, not the one on the trade date.
 - **DuckLake** storage does not work yet: DuckLake has no primary keys, which the raw tables
   and their upserts rely on. Keep the default `WL_STORAGE=duckdb` for now.
 - **DuckDB 1.x**: SQLMesh supports DuckDB 1.x only, so it is pinned below 2. A database file

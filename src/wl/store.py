@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from wl.config import Company
-    from wl.models import Fact, FxRate, PriceBar
+    from wl.models import Fact, Filing, FxRate, InsiderTrade, PriceBar
     from wl.settings import Settings
 
 type Row = dict[str, object]
@@ -44,6 +44,21 @@ CREATE TABLE IF NOT EXISTS raw_facts (
     period_start DATE, period_end DATE NOT NULL, value DOUBLE NOT NULL,
     fiscal_year INTEGER, fiscal_period VARCHAR, form VARCHAR, filed DATE, accession VARCHAR,
     source VARCHAR NOT NULL, source_url VARCHAR NOT NULL, fetched_at TIMESTAMP NOT NULL
+);
+CREATE TABLE IF NOT EXISTS raw_filings (
+    slug VARCHAR NOT NULL, source VARCHAR NOT NULL, id VARCHAR NOT NULL, date DATE NOT NULL,
+    form VARCHAR NOT NULL, items VARCHAR, period DATE, title VARCHAR NOT NULL,
+    url VARCHAR NOT NULL, fetched_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (slug, source, id)
+);
+CREATE TABLE IF NOT EXISTS raw_insider_trades (
+    slug VARCHAR NOT NULL, source VARCHAR NOT NULL, id VARCHAR NOT NULL, line INTEGER NOT NULL,
+    filed DATE NOT NULL, trade_date DATE NOT NULL, person VARCHAR NOT NULL,
+    role VARCHAR NOT NULL, code VARCHAR NOT NULL, acquired BOOLEAN NOT NULL,
+    shares DOUBLE NOT NULL, price DOUBLE, ccy VARCHAR NOT NULL, owned_after DOUBLE,
+    planned BOOLEAN NOT NULL, derivative BOOLEAN NOT NULL, amendment BOOLEAN NOT NULL,
+    security VARCHAR NOT NULL, url VARCHAR NOT NULL, fetched_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (slug, source, id, line)
 );
 CREATE TABLE IF NOT EXISTS concept_map (
     concept VARCHAR NOT NULL, taxonomy VARCHAR NOT NULL, tag VARCHAR NOT NULL,
@@ -110,11 +125,17 @@ class Store:
             self._con.execute("DELETE FROM raw_facts WHERE slug = ?", [slug])
             return self._write("INSERT INTO raw_facts", facts)
 
+    def upsert_filings(self, filings: Sequence[Filing]) -> int:
+        return self._write("INSERT OR REPLACE INTO raw_filings", filings)
+
+    def upsert_insider_trades(self, trades: Sequence[InsiderTrade]) -> int:
+        return self._write("INSERT OR REPLACE INTO raw_insider_trades", trades)
+
     def delete_company(self, slug: str) -> None:
-        """Drop a company's prices and facts (it left the watchlist, or its add was undone)."""
+        """Drop a company's data (it left the watchlist, or its add was undone)."""
         with self._transaction():
-            self._con.execute("DELETE FROM raw_prices WHERE slug = ?", [slug])
-            self._con.execute("DELETE FROM raw_facts WHERE slug = ?", [slug])
+            for table in ("raw_prices", "raw_facts", "raw_filings", "raw_insider_trades"):
+                self._con.execute(f"DELETE FROM {table} WHERE slug = ?", [slug])  # noqa: S608
 
     def _write(self, insert_into: str, records: Sequence[BaseModel]) -> int:
         """Insert records into a raw table whose columns are the record fields + fetched_at."""
@@ -171,6 +192,14 @@ class Store:
             """,
             [slug, limit],
         )
+
+    def insider_filing_ids(self, slug: str, source: str) -> set[str]:
+        """List the filings a company's stored insider trades came from, not to fetch them again."""
+        rows = self.query(
+            "SELECT DISTINCT id FROM raw_insider_trades WHERE slug = ? AND source = ?",
+            [slug, source],
+        )
+        return {str(row["id"]) for row in rows}
 
     def gaps(self, today: date) -> list[Row]:
         """Companies whose latest fiscal year misses concepts or is out of date.
